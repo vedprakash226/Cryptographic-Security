@@ -6,7 +6,7 @@
 #include <cstdlib>
 
 void generate_shares_for_matrix(const std::string& prefix, int num_rows, int k) {
-    std::ofstream(prefix + "0.txt").close(); // Clear files
+    std::ofstream(prefix + "0.txt").close(); 
     std::ofstream(prefix + "1.txt").close();
 
     for (int i = 0; i < num_rows; ++i) {

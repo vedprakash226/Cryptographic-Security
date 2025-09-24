@@ -2,8 +2,7 @@ services:
   gen_data:
     build: .
     container_name: gen_data
-    # Use absolute path to executable
-    command: /app/gen_data 10 20 5 4
+    command: /app/gen_data 10 20 5 5
     volumes:
       - ./shared_data:/app/shared_data
     working_dir: /app/shared_data

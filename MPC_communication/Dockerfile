@@ -22,4 +22,4 @@ RUN g++ -std=c++20 -O2 -pthread p2.cpp -o p2 -lboost_system
 RUN mkdir -p /app/data_volume
 RUN cp gen_data p0 p1 p2 /app/data_volume/
 
-# The command will be provided by docker-compose
+
