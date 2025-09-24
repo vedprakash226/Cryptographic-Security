@@ -2,16 +2,19 @@ services:
   gen_data:
     build: .
     container_name: gen_data
-    # Generates data for 10 users, 20 items, 5 features, and 4 queries
-    command: ./gen_data 10 20 5 4
+    # Use absolute path to executable
+    command: /app/gen_data 10 20 5 4
     volumes:
-      - .:/app/data_volume
-    working_dir: /app/data_volume
+      - ./shared_data:/app/shared_data
+    working_dir: /app/shared_data
 
   p2:
     build: .
     container_name: p2
-    command: ./p2 10 20 5 4
+    command: /app/p2 10 20 5 4
+    volumes:
+      - ./shared_data:/app/shared_data
+    working_dir: /app/shared_data
     depends_on:
       - gen_data
     networks:
@@ -20,7 +23,10 @@ services:
   p1:
     build: .
     container_name: p1
-    command: ./p1 10 20 5 4
+    command: /app/p1 10 20 5 4
+    volumes:
+      - ./shared_data:/app/shared_data
+    working_dir: /app/shared_data
     depends_on:
       - gen_data
       - p2
@@ -30,14 +36,16 @@ services:
   p0:
     build: .
     container_name: p0
-    command: ./p0 10 20 5 4
+    command: /app/p0 10 20 5 4
+    volumes:
+      - ./shared_data:/app/shared_data
+    working_dir: /app/shared_data
     depends_on:
       - gen_data
       - p1
       - p2
     networks:
       - mpc_net
-    # Forcing P0 to run last to see combined logs better
     
 networks:
   mpc_net:
