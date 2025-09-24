@@ -8,7 +8,7 @@
 #include <vector>
 
 // write a vector to a file by appending it
-inline void write_vector(const std::string& filename, const Share& vec) {
+inline void write(const std::string& filename, const Share& vec) {
     std::ofstream file(filename, std::ios_base::app);
     if (!file.is_open()) {
         throw std::runtime_error("Could not open file for writing: " + filename);

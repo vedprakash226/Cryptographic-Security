@@ -1,7 +1,7 @@
 services:
   gen_data:
     build: .
-    container_name: gen_data
+    image: gen_data_image
     command: /app/gen_data 10 20 5 5
     volumes:
       - ./shared_data:/app/shared_data
@@ -9,19 +9,17 @@ services:
 
   p2:
     build: .
-    container_name: p2
+    image: third_party
     command: /app/p2 10 20 5 4
     volumes:
       - ./shared_data:/app/shared_data
     working_dir: /app/shared_data
     depends_on:
       - gen_data
-    networks:
-      - mpc_net
 
   p1:
     build: .
-    container_name: p1
+    image: second_server
     command: /app/p1 10 20 5 4
     volumes:
       - ./shared_data:/app/shared_data
@@ -29,12 +27,10 @@ services:
     depends_on:
       - gen_data
       - p2
-    networks:
-      - mpc_net
   
   p0:
     build: .
-    container_name: p0
+    image: first_server
     command: /app/p0 10 20 5 4
     volumes:
       - ./shared_data:/app/shared_data
@@ -43,9 +39,3 @@ services:
       - gen_data
       - p1
       - p2
-    networks:
-      - mpc_net
-    
-networks:
-  mpc_net:
-    driver: bridge
