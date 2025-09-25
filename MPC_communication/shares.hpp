@@ -4,16 +4,18 @@
 #include<numeric>
 #include<stdexcept>
 #include "common.hpp"
+typedef long long int ll;
+const int mod = 1000007; 
 
 struct Share{
-    std:: vector<uint32_t> data;
+    std:: vector<ll> data;
     Share()=default;
-    
-    explicit Share(size_t size): data(size,0) {}    
-    Share(std::vector<uint32_t> d): data(std::move(d)) {}
+
+    explicit Share(size_t size): data(size,0) {}
+    Share(std::vector<ll> d): data(std::move(d)) {}
 
     void randomizer(){
-        for(auto &val: data) val = random_uint32();
+        for(auto &val: data) val = random_uint32()%mod; //random value generation
     }
 
     size_t size() const{
@@ -50,5 +52,5 @@ inline Share operator*(const Share &a, const Share &b){
 }
 
 struct BeaverTriple{
-    uint32_t a, b, c;
+    ll a, b, c;
 };

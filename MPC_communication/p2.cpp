@@ -2,12 +2,13 @@
 #include "shares.hpp"
 #include <boost/asio.hpp>
 #include <iostream>
+typedef long long int ll;
 
-// Handles a pair of connected clients (P0 and P1) to provide them with Beaver triples.
+// provides connected clients (P0 and P1) with Beaver triples.
 awaitable<void> handle_clients(tcp::socket p0_socket, tcp::socket p1_socket) {
     try {
         // P0 will send the number of triples needed
-        uint32_t k;
+        ll k;
         co_await boost::asio::async_read(p0_socket, boost::asio::buffer(&k, sizeof(k)), use_awaitable);
         std::cout << "P2: Received request for " << k << " triples." << std::endl;
 
@@ -16,18 +17,18 @@ awaitable<void> handle_clients(tcp::socket p0_socket, tcp::socket p1_socket) {
             std::vector<BeaverTriple> p0_triples(k);
             std::vector<BeaverTriple> p1_triples(k);
 
-            for(uint32_t i=0; i<k; ++i) {
-                uint32_t a = random_uint32();
-                uint32_t b = random_uint32();
-                uint32_t c = a * b;
+            for(ll i=0; i<k; ++i) {
+                ll a = random_uint32()%mod;
+                ll b = random_uint32()%mod;
+                ll c = a * b;
 
-                uint32_t a0 = random_uint32();
-                uint32_t b0 = random_uint32();
-                uint32_t c0 = random_uint32();
+                ll a0 = random_uint32()%mod;
+                ll b0 = random_uint32()%mod;
+                ll c0 = random_uint32()%mod;
 
-                uint32_t a1 = a - a0;
-                uint32_t b1 = b - b0;
-                uint32_t c1 = c - c0;
+                ll a1 = a - a0;
+                ll b1 = b - b0;
+                ll c1 = c - c0;
 
                 p0_triples[i] = {a0, b0, c0};
                 p1_triples[i] = {a1, b1, c1};

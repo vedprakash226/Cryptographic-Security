@@ -1,4 +1,5 @@
 #include "common.hpp"
+#include "shares.hpp"
 #include "mpc.hpp"
 #include "utility.hpp"
 #include <iostream>
@@ -54,6 +55,10 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         #endif
         std::vector<Share> u_shares = read_vector(u_file, k);
         std::vector<Share> v_shares = read_vector(v_file, k);
+        // to check the correctness, read the peer's shares as well
+        std::vector<Share> u_shares_peer = read_vector(u_file == "U0.txt" ? "U1.txt" : "U0.txt", k);
+        std::vector<Share> v_shares_peer = read_vector(v_file == "V0.txt" ? "V1.txt" : "V0.txt", k);
+
         auto queries = read_queries("queries.txt");
         std::cout << role << ": Read initial data for " << queries.size() << " queries." << std::endl;
 
@@ -63,10 +68,14 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         for (const auto& query : queries) {
             int user_idx = query.first;
             int item_idx = query.second;
+
             std::cout << "\n" << role << ": Processing query (user=" << user_idx << ", item=" << item_idx << ")." << std::endl;
 
             Share& u_b = u_shares[user_idx];
             const Share& v_b = v_shares[item_idx];
+
+            Share& u_b_peer = u_shares_peer[user_idx];
+            const Share& v_b_peer = v_shares_peer[item_idx];
 
             // Perform the secure update
             Share u_prime_b = co_await mpc.secure_update(u_b, v_b, k);

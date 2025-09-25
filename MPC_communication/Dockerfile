@@ -18,8 +18,6 @@ RUN g++ -std=c++20 -O2 -pthread pB.cpp -o p0 -DROLE_p0 -lboost_system
 RUN g++ -std=c++20 -O2 -pthread pB.cpp -o p1 -DROLE_p1 -lboost_system
 RUN g++ -std=c++20 -O2 -pthread p2.cpp -o p2 -lboost_system
 
-# Create data_volume directory and copy executables there
-RUN mkdir -p /app/data_volume
-RUN cp gen_data p0 p1 p2 /app/data_volume/
-
-
+# Create shared_files directory and copy executables there
+RUN mkdir -p /app/shared_files
+RUN cp gen_data p0 p1 p2 /app/shared_files/

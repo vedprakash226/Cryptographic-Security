@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+typedef long long int ll;
 
 // write a vector to a file by appending it
 inline void write(const std::string& filename, const Share& vec) {
@@ -13,7 +14,7 @@ inline void write(const std::string& filename, const Share& vec) {
     if (!file.is_open()) {
         throw std::runtime_error("Could not open file for writing: " + filename);
     }
-    for (size_t i = 0; i < vec.size(); ++i)
+    for (size_t i = 0; i < vec.size(); i++)
         file << vec.data[i] << (i == vec.size() - 1 ? "" : " ");
     file << "\n";
 }
@@ -28,8 +29,8 @@ inline std::vector<Share> read_vector(const std::string& filename, int k) {
     std::string line;
     while (std::getline(input, line)) {
         std::stringstream ss(line);
-        std::vector<uint32_t> vec_data;
-        uint32_t val;
+        std::vector<ll> vec_data;
+        ll val;
         while (ss >> val) {
             vec_data.push_back(val);
         }
