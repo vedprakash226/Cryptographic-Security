@@ -6,22 +6,23 @@
 #include <unordered_map>
 #include <thread>
 #include <chrono>
+using namespace std;
 
-static bool file_exists(const std::string& path) {
-    std::ifstream f(path);
+static bool file_exists(const string& path) {
+    ifstream f(path);
     return f.good();
 }
 
-static std::unordered_map<int, Share> read_mpc_results(const std::string& path, int k) {
-    std::unordered_map<int, Share> res;
-    std::ifstream in(path);
-    if (!in.is_open()) throw std::runtime_error("Could not open " + path);
-    std::string line;
-    while (std::getline(in, line)) {
-        std::stringstream ss(line);
+static unordered_map<int, Share> read_mpc_results(const string& path, int k) {
+    unordered_map<int, Share> res;
+    ifstream in(path);
+    if (!in.is_open()) throw runtime_error("Could not open " + path);
+    string line;
+    while (getline(in, line)) {
+        stringstream ss(line);
         int idx;
         ss >> idx;
-        std::vector<ll> vec(k);
+        vector<ll> vec(k);
         for (int i = 0; i < k; ++i) ss >> vec[i];
         res.emplace(idx, Share{vec});
     }
@@ -38,36 +39,36 @@ static void direct_update_inplace(Share& ui, const Share& vj) {
     for (size_t t = 0; t < ui.size(); ++t) ui.data[t] = ui.data[t] + vj.data[t] * delta;
 }
 
-static bool wait_for_file(const std::string& path, int max_seconds) {
+static bool wait_for_file(const string& path, int max_seconds) {
     for (int s = 0; s < max_seconds; ++s) {
         if (file_exists(path)) return true;
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        this_thread::sleep_for(chrono::seconds(1));
     }
     return false;
 }
 
 int main(int argc, char* argv[]) {
     if (argc != 5) {
-        std::cerr << "Usage: " << argv[0] << " <num_users> <num_items> <num_features> <num_queries>\n";
+        cerr << "Usage: " << argv[0] << " <num_users> <num_items> <num_features> <num_queries>\n";
         return 1;
     }
     try {
-        int m = std::stoi(argv[1]);
-        int n = std::stoi(argv[2]);
-        int k = std::stoi(argv[3]);
+        int m = stoi(argv[1]);
+        int n = stoi(argv[2]);
+        int k = stoi(argv[3]);
         (void)m; (void)n;
 
-        // Wait for P0 to finish writing results (done flag)
+        // waiting for the P0 to finish
         if (!wait_for_file("mpc_results.done", /*max_seconds=*/3600)) {
-            std::cerr << "Timeout waiting for mpc_results.done. Exiting.\n";
+            cerr << "Timeout waiting for mpc_results.done. Exiting.\n";
             return 2;
         }
         // Small grace to ensure file flush
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        this_thread::sleep_for(chrono::milliseconds(200));
 
         // Now read mpc_results.txt
         if (!file_exists("mpc_results.txt")) {
-            std::cerr << "mpc_results.txt not found after done flag. Exiting.\n";
+            cerr << "mpc_results.txt not found after done flag. Exiting.\n";
             return 2;
         }
 
@@ -76,11 +77,11 @@ int main(int argc, char* argv[]) {
         auto U1 = read_vector("U1.txt", k);
         auto V0 = read_vector("V0.txt", k);
         auto V1 = read_vector("V1.txt", k);
-        if (U0.size() != U1.size()) throw std::runtime_error("U0/U1 size mismatch");
-        if (V0.size() != V1.size()) throw std::runtime_error("V0/V1 size mismatch");
+        if (U0.size() != U1.size()) throw runtime_error("U0/U1 size mismatch");
+        if (V0.size() != V1.size()) throw runtime_error("V0/V1 size mismatch");
 
-        std::vector<Share> U(U0.size(), Share(k));
-        std::vector<Share> V(V0.size(), Share(k));
+        vector<Share> U(U0.size(), Share(k));
+        vector<Share> V(V0.size(), Share(k));
         for (size_t i = 0; i < U.size(); ++i) U[i] = U0[i] + U1[i];
         for (size_t j = 0; j < V.size(); ++j) V[j] = V0[j] + V1[j];
 
@@ -110,28 +111,28 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            std::cout << "User " << idx << ": "
+            cout << "User " << idx << ": "
                       << (match ? "Matched" : "Not matched") << "\n";
 
             if (!match) {
-                std::cout << "  MPC: [";
+                cout << "  MPC: [";
                 for (size_t t = 0; t < mpc_u.size(); ++t)
-                    std::cout << mpc_u.data[t] << (t + 1 == mpc_u.size() ? "" : " ");
-                std::cout << "]\n  DIR: [";
+                    cout << mpc_u.data[t] << (t + 1 == mpc_u.size() ? "" : " ");
+                cout << "]\n  DIR: [";
                 for (size_t t = 0; t < dir_u.size(); ++t)
-                    std::cout << dir_u.data[t] << (t + 1 == dir_u.size() ? "" : " ");
-                std::cout << "]\n";
+                    cout << dir_u.data[t] << (t + 1 == dir_u.size() ? "" : " ");
+                cout << "]\n";
                 all_match = false;
             }
         }
 
         if (all_match) {
-            std::cout << "All compared users matched between MPC and direct update.\n";
+            cout << "All compared users matched between MPC and direct update.\n";
         }
         return all_match ? 0 : 3;
 
-    } catch (const std::exception& e) {
-        std::cerr << "verify error: " << e.what() << "\n";
+    } catch (const exception& e) {
+        cerr << "verify error: " << e.what() << "\n";
         return 1;
     }
 }
