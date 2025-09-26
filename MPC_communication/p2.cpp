@@ -2,6 +2,7 @@
 #include "shares.hpp"
 #include <boost/asio.hpp>
 #include <iostream>
+using namespace std;
 typedef long long int ll;
 
 // provides connected clients (P0 and P1) with Beaver triples.
@@ -10,12 +11,12 @@ awaitable<void> handle_clients(tcp::socket p0_socket, tcp::socket p1_socket) {
         // P0 will send the number of triples needed
         ll k;
         co_await boost::asio::async_read(p0_socket, boost::asio::buffer(&k, sizeof(k)), use_awaitable);
-        std::cout << "P2: Received request for " << k << " triples." << std::endl;
+        cout << "P2: Received request for " << k << " triples." << endl;
 
-        // Generate and send triples for each request until one party disconnects
+        // generate and send triples for each request until one party disconnects
         while(k > 0) {
-            std::vector<BeaverTriple> p0_triples(k);
-            std::vector<BeaverTriple> p1_triples(k);
+            vector<BeaverTriple> p0_triples(k);
+            vector<BeaverTriple> p1_triples(k);
 
             // using a single a for all the k triples
             ll a = random_uint32()%mod;
@@ -41,11 +42,11 @@ awaitable<void> handle_clients(tcp::socket p0_socket, tcp::socket p1_socket) {
             
             // Wait for next request
             co_await boost::asio::async_read(p0_socket, boost::asio::buffer(&k, sizeof(k)), use_awaitable);
-             std::cout << "P2: Received request for " << k << " triples." << std::endl;
+             cout << "P2: Received request for " << k << " triples." << endl;
         }
 
-    } catch (std::exception& e) {
-        std::cout << "P2 closing connection: " << e.what() << "\n";
+    } catch (exception& e) {
+        cout << "P2 closing connection: " << e.what() << "\n";
     }
 }
 
@@ -54,21 +55,19 @@ int main(int argc, char* argv[]) {
         boost::asio::io_context io_context;
         tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 9002));
 
-        std::cout << "P2 listening on port 9002..." << std::endl;
+        cout << "P2 listening on port 9002..." << endl;
 
         // Accept connections from P0 and P1
         tcp::socket socket_p0 = acceptor.accept();
-        std::cout << "P2 accepted connection 1." << std::endl;
+        cout << "P2 accepted connection 1." << endl;
         tcp::socket socket_p1 = acceptor.accept();
-        std::cout << "P2 accepted connection 2." << std::endl;
+        cout << "P2 accepted connection 2." << endl;
 
         // Spawn a coroutine to handle this pair of clients
-        co_spawn(io_context, handle_clients(std::move(socket_p0), std::move(socket_p1)), detached);
-
+        co_spawn(io_context, handle_clients(move(socket_p0), move(socket_p1)), detached);
         io_context.run();
-
-    } catch (std::exception& e) {
-        std::cerr << "Exception in P2: " << e.what() << "\n";
+    } catch (exception& e) {
+        cerr << "Exception in P2: " << e.what() << "\n";
     }
     return 0;
 }

@@ -14,7 +14,7 @@ Use the run.sh script (builds images, runs MPC services, then runs the verifier 
 - ./run.sh "users" "items" "features" "queries"
 
 Example:
-- ./run.sh 60 100 20 100
+- ./run.sh 200 200 20 100
 
 
 ## Overview of the Protocol

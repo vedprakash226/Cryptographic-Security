@@ -116,7 +116,7 @@ public:
     MPCProtocol(tcp::socket& peer, tcp::socket& p2) : peer_sock(peer), p2_sock(p2) {}
 
     // function for full secure update protocol for u_i <- u_i + v_j * (1 - <u_i, v_j>)
-    awaitable<Share> secure_update(const Share& ui, const Share& vj, int k) {
+    awaitable<Share> updateProtocol(const Share& ui, const Share& vj, int k) {
         // dot product <u_i, v_j>
         ll prodShare = co_await MPC_DOTPRODUCT(ui, vj, k);
         
