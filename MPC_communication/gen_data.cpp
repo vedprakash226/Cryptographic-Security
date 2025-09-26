@@ -85,7 +85,7 @@ int main(int argc, char* argv[]) {
                 s1[idx] = subm(e,r);
             }
             for (int idx = 0; idx < n; ++idx) {
-                s0f << s0[idx] << (idx + 1 == n ? "" : " ");
+                s0f << s0[idx] << (idx+1== n?"":" ");
             }
             s0f << "\n";
             for (int idx = 0; idx < n; ++idx) {
