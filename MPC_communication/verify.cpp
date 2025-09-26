@@ -1,6 +1,5 @@
 #include "shares.hpp"
 #include "utility.hpp"
-#include "mpc.hpp"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -21,8 +20,7 @@ static unordered_map<int, Share> readMPC_result(const string& path, int k) {
     string line;
     while (getline(in, line)) {
         stringstream ss(line);
-        int idx;
-        ss >> idx;
+        int idx; ss >> idx;
         vector<ll> vec(k);
         for (int i = 0; i < k; ++i) ss >> vec[i];
         res.emplace(idx, Share{vec});
@@ -34,10 +32,10 @@ static unordered_map<int, Share> readMPC_result(const string& path, int k) {
 static void directProtocol(Share& ui, const Share& vj) {
     ll dot = 0;
     for (int i = 0; i < (int)ui.size(); i++)
-        dot = add(dot, mult(ui.data[i], vj.data[i]));
-    ll delta = sub(1, dot);
+        dot = addm(dot, mulm(ui.data[i], vj.data[i]));
+    ll delta = subm(1, dot);
     for (int i = 0; i < (int)ui.size(); ++i)
-        ui.data[i] = add(ui.data[i], mult(vj.data[i], delta));
+        ui.data[i] = addm(ui.data[i], mulm(vj.data[i], delta));
 }
 
 static bool fileWait(const string& path, int max_seconds) {
@@ -126,7 +124,7 @@ int main(int argc, char* argv[]) {
         }
 
         if (all_match) {
-            cout << "All compared users matched between MPC and direct update.\n";
+            cout << "Successful match between all MPC and direct update.\n";
         }
         return all_match ? 0 : 3;
 

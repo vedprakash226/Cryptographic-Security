@@ -20,7 +20,7 @@ awaitable<tcp::socket> setup_p2_connection(boost::asio::io_context& io_context) 
     co_return sock;
 }
 
-// Setup peer connection (P0 connects to P1, P1 accepts)
+// establishing peer connection (P0 connects to P1 and P1 accepts)
 awaitable<tcp::socket> setup_peer_connection(boost::asio::io_context& io_context) {
     tcp::socket sock(io_context);
 #ifdef ROLE_p0
@@ -34,7 +34,7 @@ awaitable<tcp::socket> setup_peer_connection(boost::asio::io_context& io_context
     co_return sock;
 }
 
-// Main protocol execution
+// main protocol execution ex
 awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
     const char* role =
     #ifdef ROLE_p0
@@ -43,23 +43,46 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         "P1";
     #endif
     try {
-        // connection setup with the third party and the peer server
         tcp::socket p2_sock = co_await setup_p2_connection(io_context);
         tcp::socket peer_sock = co_await setup_peer_connection(io_context);
         cout << role << ": Connections established." << endl;
 
+        // Identify to P2 (P0=0, P1=1)
+        {
+            uint8_t rid =
+            #ifdef ROLE_p0
+                0;
+            #else
+                1;
+            #endif
+            co_await boost::asio::async_write(p2_sock, boost::asio::buffer(&rid, 1), use_awaitable);
+        }
+
         // reading the data 
-        string u_file, v_file;
+        string u_file, v_file, s_file;
         #ifdef ROLE_p0
-            u_file = "U0.txt"; v_file = "V0.txt";
+            u_file = "U0.txt"; v_file = "V0.txt"; s_file = "S0.txt";
         #else
-            u_file = "U1.txt"; v_file = "V1.txt";
+            u_file = "U1.txt"; v_file = "V1.txt"; s_file = "S1.txt";
         #endif
         vector<Share> u_shares = read_vector(u_file, k);
-        vector<Share> v_shares = read_vector(v_file, k);
+        vector<Share> v_shares = read_vector(v_file, k); // n rows, k dims
+        int n = static_cast<int>(v_shares.size());
 
-        auto queries = read_queries("queries.txt");
-        cout << role << ": Read initial data for " << queries.size() << " queries." << endl;
+        // Read selector shares: each line has n entries
+        vector<Share> s_shares = read_vector(s_file, n);
+
+        // Read user-only queries (one user index per line)
+        auto users_only = read_users("queries_users.txt");
+        if (static_cast<int>(users_only.size()) != static_cast<int>(s_shares.size())) {
+            throw runtime_error("queries_users.txt and S.txt line count mismatch");
+        }
+        cout << role << ": Read data for " << users_only.size() << " queries (private item index)." << endl;
+        cout << role << ": counts -> U=" << u_shares.size()
+             << " V(n)=" << v_shares.size()
+             << " k=" << k
+             << " queries(users_only)=" << users_only.size()
+             << " S-lines=" << s_shares.size() << endl;
 
         MPCProtocol mpc(peer_sock, p2_sock);
 
@@ -68,15 +91,16 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         unordered_map<int, Share> final_reconstructed;
         #endif
 
-        for (const auto& query : queries) {
-            int user_idx = query.first;
-            int item_idx = query.second;
+        for (size_t q = 0; q < users_only.size(); ++q) {
+            int user_idx = users_only[q];
+            const Share& s_b = s_shares[q]; // length n selector share
 
-            Share& u_b = u_shares[user_idx];
-            const Share& v_b = v_shares[item_idx];
+            // Obliviously select v_j share without revealing j
+            Share v_sel_b = co_await mpc.OT_select(s_b, v_shares, n, k);
 
             // securely updating the user share
-            Share u_prime_b = co_await mpc.updateProtocol(u_b, v_b, k);
+            Share& u_b = u_shares[user_idx];
+            Share u_prime_b = co_await mpc.updateProtocol(u_b, v_sel_b, k);
             u_shares[user_idx] = u_prime_b;
 
             // Reconstruct updated vector
@@ -84,23 +108,15 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             Share u_prime_peer = co_await recv_vec(peer_sock, k);
             Share u_reconstructed = u_prime_b + u_prime_peer;
 
-            // P0 samples new random share r, sets P1's share as u' - r, sends it to P1.
-            // P1 receives and overwrites its local share for this user.
+            // Re-share randomized
             #ifdef ROLE_p0
                 Share new_p0(k);
                 new_p0.randomizer();                 // fresh random share for P0
                 Share new_p1 = u_reconstructed - new_p0; // complementary share for P1
-
-                // rewriting P0 share
                 u_shares[user_idx] = new_p0;
-
-                // Send P1 its new share
                 co_await send_vec(peer_sock, new_p1);
             #else
-                // Receive P1's new share from P0
                 Share new_p1 = co_await recv_vec(peer_sock, k);
-
-                // rewriting the updated randomaized share at P1
                 u_shares[user_idx] = new_p1;
             #endif
 
@@ -119,8 +135,7 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         {
             ofstream out("mpc_results.txt", ios::trunc);
             if (!out.is_open()) throw runtime_error("Could not open mpc_results.txt for writing");
-
-            // Each line: user_idx val0 val1 ... val{k-1}
+            std::cout << "P0: Writing " << final_reconstructed.size() << " users to mpc_results.txt\n";
             for (const auto& kv : final_reconstructed) {
                 out << kv.first;
                 for (auto v : kv.second.data) out << " " << v;

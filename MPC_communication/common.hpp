@@ -5,6 +5,7 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <iostream>
 #include <random>
+typedef long long int ll;
 
 using boost::asio::awaitable;
 using boost::asio::co_spawn;

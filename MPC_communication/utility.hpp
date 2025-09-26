@@ -9,6 +9,20 @@
 using namespace std;
 typedef long long int ll;
 
+const int mod = 1000000007;
+
+// Normalize into [0, mod)
+inline ll norm(ll x) {
+    x %= mod;
+    if (x < 0) x += mod;
+    return x;
+}
+
+// Modular ops
+inline ll addm(ll a, ll b) { return norm(a + b); }
+inline ll subm(ll a, ll b) { return norm(a - b); }
+inline ll mulm(ll a, ll b) {return norm(a * b); }
+
 // write a vector to a file by appending it
 inline void write(const string& filename, const Share& vec) {
     ofstream file(filename, ios_base::app);
@@ -55,4 +69,16 @@ inline vector<pair<int, int>> read_queries(const string& filename) {
         queries.push_back({u, i});
     }
     return queries;
+}
+
+// Reads one user index per line
+inline vector<int> read_users(const string& filename) {
+    vector<int> users;
+    ifstream in(filename);
+    if (!in.is_open()) {
+        throw runtime_error("Could not open users file: " + filename);
+    }
+    int u;
+    while (in >> u) users.push_back(u);
+    return users;
 }

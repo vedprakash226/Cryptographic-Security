@@ -3,6 +3,8 @@
 #include "common.hpp"
 #include "shares.hpp"
 #include <vector>
+#include "utility.hpp"
+using namespace std;
 typedef long long int ll;
 
 // coroutine to send a vector share
@@ -29,37 +31,23 @@ awaitable<ll> recv_val(tcp::socket& sock) {
     co_return val;
 }
 
-ll add(ll a, ll b) {
-    ll r = (a + b) % mod;
-    if (r < 0) r += mod;
-    return r;
-}
-ll sub(ll a, ll b) {
-    ll r = (a - b) % mod;
-    if (r < 0) r += mod;
-    return r;
-}
-ll mult(ll a, ll b) {
-    return (a * b) % mod;
-}
-
 class MPCProtocol {
 private:
     tcp::socket& peer_sock;
     tcp::socket& p2_sock;
     // Securely computes the dot product of two secret-shared vectors based on the image provided.
     awaitable<ll> MPC_DOTPRODUCT(const Share& x_b, const Share& y_b, int k) {
-        // Get Beaver triples from P2 for vector multiplication
-        std::vector<BeaverTriple> triples = co_await getBeaverTriple(k);
+        // beaver triplit
+        vector<BeaverTriple> triples = co_await getBeaverTriple(k);
         Share a_b(k), b_b(k);
-        std::vector<ll> c_b(k);
+        vector<ll> c_b(k);
         for(int i=0; i<k; i++) {
             a_b.data[i] = triples[i].a;
             b_b.data[i] = triples[i].b;
             c_b[i] = triples[i].c;
         }
         
-        // Compute masked values alpha and beta using addition
+        // blinding the values 
         Share alpha_b = x_b + a_b;
         Share beta_b  = y_b + b_b;
 
@@ -74,11 +62,9 @@ private:
 
         ll prodShare = 0;
         for (int i = 0; i < k; i++) {
-            // Correct Beaver formula: (x+a)*y_b - (y+b)*a_b + c_b
-            ll term = add(sub(mult(alpha.data[i], y_b.data[i]),
-                              mult(beta.data[i],  a_b.data[i])),
-                          c_b[i]);
-            prodShare = add(prodShare, term);
+            // (x+a)*y_b - (y+b)*a_b + c_b <- beaver method to get mulmiplication share
+            ll term = addm(subm(mulm(alpha.data[i], y_b.data[i]),mulm(beta.data[i],  a_b.data[i])),c_b[i]);
+            prodShare = addm(prodShare, term);
         }
         co_return prodShare;
     }
@@ -86,9 +72,9 @@ private:
     // Securely computes the product of a secret-shared scalar and a secret-shared vector
     awaitable<Share> scalarVecProd(ll scalar_share, const Share& vec_share, int k) {
         // Get Beaver triples from P2
-        std::vector<BeaverTriple> triples = co_await getBeaverTriple(k);
+        vector<BeaverTriple> triples = co_await getBeaverTriple(k);
         Share a_b(k), b_b(k); // a is scalar, b is vector
-        std::vector<ll> c_b(k);
+        vector<ll> c_b(k);
         for(int i=0; i<k; ++i) {
             a_b.data[i] = triples[i].a; // Re-using vector share for scalar shares
             b_b.data[i] = triples[i].b;
@@ -96,13 +82,13 @@ private:
         }
         
         // Mask scalar and vector (mod)
-        ll alpha_b = add(scalar_share, a_b.data[0]);
+        ll alpha_b = addm(scalar_share, a_b.data[0]);
         Share beta_b = vec_share + b_b;
 
         // Exchange and reconstruct (mod)
         co_await send_val(peer_sock, alpha_b);
         ll alpha_peer = co_await recv_val(peer_sock);
-        ll alpha = add(alpha_b, alpha_peer);
+        ll alpha = addm(alpha_b, alpha_peer);
 
         co_await send_vec(peer_sock, beta_b);
         Share beta_peer = co_await recv_vec(peer_sock, k);
@@ -111,26 +97,38 @@ private:
         Share result(k);
         for (int i = 0; i < k; i++) {
             // (s+a)*v_b[i] - (v[i]+b[i])*a + c[i]
-            result.data[i] = add(sub(mult(alpha,            vec_share.data[i]),
-                                     mult(beta.data[i],     a_b.data[0])),
-                                 c_b[i]);
+            result.data[i] = addm(subm(mulm(alpha,vec_share.data[i]), mulm(beta.data[i],a_b.data[0])), c_b[i]);
         }
         co_return result;
     }
     
-    // request for k Beaver multiplication triples from P2
-    awaitable<std::vector<BeaverTriple>> getBeaverTriple(int k) {
-        // reqesting k triples
+    // request for k Beaver mulmiplication triples from P2
+    awaitable<vector<BeaverTriple>> getBeaverTriple(int k) {
+        // Only P0 sends the request to P2; P1 passively receives triples.
+        #ifdef ROLE_p0
         co_await send_val(p2_sock, k);
-        
-        // receiving k triples
-        std::vector<BeaverTriple> triples(k);
+        #endif
+
+        vector<BeaverTriple> triples(k);
         co_await boost::asio::async_read(p2_sock, boost::asio::buffer(triples), use_awaitable);
-        
         co_return triples;
     }
 
+    // Select item v_j obliviously using secret-shared one-hot s (length n):
+    // v_sel[d] = <s, V_col[d]> for d=0..k-1
+    awaitable<Share> select_item_oblivious(const Share& s_b,const vector<Share>& V_rows_b, int n, int k) {
+        Share select_b(k);
+        for (int d = 0; d < k; d++) {
+            Share col_d(n);
+            for (int t = 0; t < n; ++t) col_d.data[t] = V_rows_b[t].data[d];
+            ll coord_share = co_await MPC_DOTPRODUCT(s_b, col_d, n);
+            select_b.data[d] = coord_share;
+        }
+        co_return select_b;
+    }
+
 public:
+
     MPCProtocol(tcp::socket& peer, tcp::socket& p2) : peer_sock(peer), p2_sock(p2) {}
 
     // function for full secure update protocol for u_i <- u_i + v_j * (1 - <u_i, v_j>)
@@ -139,14 +137,19 @@ public:
 
         ll delta_share;
         #ifdef ROLE_p0
-            delta_share = sub(1, prodShare);
+            delta_share = subm(1, prodShare);
         #else
-            delta_share = sub(0, prodShare);
+            delta_share = subm(0, prodShare);
         #endif
 
         Share prod_vec_share = co_await scalarVecProd(delta_share, vj, k);
         Share u_prime_b = ui + prod_vec_share;
         co_return u_prime_b;
+    }
+
+    // Expose oblivious selection for caller
+    awaitable<Share> OT_select(const Share& s_b, const vector<Share>& V_rows_b, int n, int k) {
+        co_return co_await select_item_oblivious(s_b, V_rows_b, n, k);
     }
 };
 

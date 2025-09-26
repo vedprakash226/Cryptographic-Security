@@ -11,11 +11,7 @@ services:
     build: .
     image: third_party
     command: /app/p2 ${NUM_USERS:-100} ${NUM_ITEMS:-200} ${NUM_FEATURES:-2} ${NUM_QUERIES:-6}
-    volumes:
-      - ./data:/app/data
     working_dir: /app/data
-    depends_on:
-      - gen_data
 
   p1:
     build: .
