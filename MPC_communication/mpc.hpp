@@ -29,6 +29,20 @@ awaitable<ll> recv_val(tcp::socket& sock) {
     co_return val;
 }
 
+ll add(ll a, ll b) {
+    ll r = (a + b) % mod;
+    if (r < 0) r += mod;
+    return r;
+}
+ll sub(ll a, ll b) {
+    ll r = (a - b) % mod;
+    if (r < 0) r += mod;
+    return r;
+}
+ll mult(ll a, ll b) {
+    return (a * b) % mod;
+}
+
 class MPCProtocol {
 private:
     tcp::socket& peer_sock;
@@ -47,22 +61,24 @@ private:
         
         // Compute masked values alpha and beta using addition
         Share alpha_b = x_b + a_b;
-        Share beta_b = y_b + b_b;
-        
+        Share beta_b  = y_b + b_b;
+
         // Exchange masked values to reconstruct them publicly
         co_await send_vec(peer_sock, alpha_b);
         Share alpha_peer = co_await recv_vec(peer_sock, k);
         Share alpha = alpha_b + alpha_peer;
-        
+
         co_await send_vec(peer_sock, beta_b);
         Share beta_peer = co_await recv_vec(peer_sock, k);
         Share beta = beta_b + beta_peer;
-        
-        // Compute share of the dot product using the reconstruction formula from the image
+
         ll prodShare = 0;
         for (int i = 0; i < k; i++) {
-            // z0 <- share of the dot product x.y
-            prodShare += alpha.data[i] * y_b.data[i] - beta.data[i] * a_b.data[i] + c_b[i];
+            // Correct Beaver formula: (x+a)*y_b - (y+b)*a_b + c_b
+            ll term = add(sub(mult(alpha.data[i], y_b.data[i]),
+                              mult(beta.data[i],  a_b.data[i])),
+                          c_b[i]);
+            prodShare = add(prodShare, term);
         }
         co_return prodShare;
     }
@@ -79,23 +95,25 @@ private:
             c_b[i] = triples[i].c;
         }
         
-        // Mask scalar and vector using addition
-        ll alpha_b = scalar_share + a_b.data[0]; // Mask scalar
-        Share beta_b = vec_share + b_b; // Mask vector
-        
-        // Exchange masked values to reconstruct them publicly
+        // Mask scalar and vector (mod)
+        ll alpha_b = add(scalar_share, a_b.data[0]);
+        Share beta_b = vec_share + b_b;
+
+        // Exchange and reconstruct (mod)
         co_await send_val(peer_sock, alpha_b);
         ll alpha_peer = co_await recv_val(peer_sock);
-        ll alpha = alpha_b + alpha_peer;
-        
+        ll alpha = add(alpha_b, alpha_peer);
+
         co_await send_vec(peer_sock, beta_b);
         Share beta_peer = co_await recv_vec(peer_sock, k);
         Share beta = beta_b + beta_peer;
-        
-        // Compute share of the product vector
+
         Share result(k);
-        for (int i = 0; i < k;i++) {
-            result.data[i] = alpha * vec_share.data[i] - beta.data[i] * a_b.data[0] + c_b[i];
+        for (int i = 0; i < k; i++) {
+            // (s+a)*v_b[i] - (v[i]+b[i])*a + c[i]
+            result.data[i] = add(sub(mult(alpha,            vec_share.data[i]),
+                                     mult(beta.data[i],     a_b.data[0])),
+                                 c_b[i]);
         }
         co_return result;
     }
@@ -117,23 +135,17 @@ public:
 
     // function for full secure update protocol for u_i <- u_i + v_j * (1 - <u_i, v_j>)
     awaitable<Share> updateProtocol(const Share& ui, const Share& vj, int k) {
-        // dot product <u_i, v_j>
         ll prodShare = co_await MPC_DOTPRODUCT(ui, vj, k);
-        
-        // delta share
+
         ll delta_share;
         #ifdef ROLE_p0
-            delta_share = 1 - prodShare;
-        #else // ROLE_p1
-            delta_share = -prodShare;
+            delta_share = sub(1, prodShare);
+        #else
+            delta_share = sub(0, prodShare);
         #endif
 
-        // compute scalar-vector product securely ((v_j0 + v_j1) * ((1-prodshare0) + (0-prodshare1)))
         Share prod_vec_share = co_await scalarVecProd(delta_share, vj, k);
-
-        // Add shares locally to get the final updated user profile share
         Share u_prime_b = ui + prod_vec_share;
-
         co_return u_prime_b;
     }
 };

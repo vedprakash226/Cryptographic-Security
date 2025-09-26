@@ -5,7 +5,7 @@
 #include<stdexcept>
 #include "common.hpp"
 typedef long long int ll;
-const int mod = 207; 
+const int mod = 1000007; 
 
 struct Share{
     std:: vector<ll> data;
@@ -28,7 +28,7 @@ inline Share operator+(const Share &a, const Share &b){
     if(a.size() != b.size()) throw std::invalid_argument("Shares must be of the same size for addition.");
     Share result(a.size());
     for(size_t i=0; i<a.size(); i++){
-        result.data[i] = a.data[i] + b.data[i];
+        result.data[i] = (a.data[i] + b.data[i]) % mod;
     }
     return result;
 }
@@ -37,7 +37,7 @@ inline Share operator-(const Share &a, const Share &b){
     if(a.size() != b.size()) throw std::invalid_argument("Shares must be of the same size for subtraction.");
     Share result(a.size());
     for(size_t i=0; i<a.size(); i++){
-        result.data[i] = a.data[i] - b.data[i];
+        result.data[i] = (a.data[i] - b.data[i] + mod) % mod;
     }
     return result;
 }
@@ -46,7 +46,7 @@ inline Share operator*(const Share &a, const Share &b){
     if(a.size() != b.size()) throw std::invalid_argument("Shares must be of the same size for multiplication.");
     Share result(a.size());
     for(size_t i=0; i<a.size(); i++){
-        result.data[i] = a.data[i] * b.data[i];
+        result.data[i] = (a.data[i] * b.data[i]) % mod;
     }
     return result;
 }

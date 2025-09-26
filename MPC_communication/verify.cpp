@@ -1,5 +1,6 @@
 #include "shares.hpp"
 #include "utility.hpp"
+#include "mpc.hpp"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -29,14 +30,14 @@ static unordered_map<int, Share> readMPC_result(const string& path, int k) {
     return res;
 }
 
-// Direct update: u_i' = u_i + v_j * (1 - <u_i, v_j>) (same arithmetic as your MPC code)
+// Direct update: u_i' = u_i + v_j * (1 - <u_i, v_j>) (mirror MPC math mod p)
 static void directProtocol(Share& ui, const Share& vj) {
-    // dot product
     ll dot = 0;
-    for (int i = 0; i < (int)ui.size(); i++) dot += ui.data[i] * vj.data[i];
-    ll delta = 1 - dot;
-    // ui = ui + vj * delta
-    for (int i = 0; i < (int)ui.size(); ++i) ui.data[i] = ui.data[i] + vj.data[i] * delta;
+    for (int i = 0; i < (int)ui.size(); i++)
+        dot = add(dot, mult(ui.data[i], vj.data[i]));
+    ll delta = sub(1, dot);
+    for (int i = 0; i < (int)ui.size(); ++i)
+        ui.data[i] = add(ui.data[i], mult(vj.data[i], delta));
 }
 
 static bool fileWait(const string& path, int max_seconds) {

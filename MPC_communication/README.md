@@ -14,7 +14,7 @@ Use the run.sh script (builds images, runs MPC services, then runs the verifier 
 - ./run.sh "users" "items" "features" "queries"
 
 Example:
-- ./run.sh 200 200 20 100
+- ./run.sh 300 300 30 100
 
 
 ## Overview of the Protocol
@@ -40,7 +40,7 @@ Example:
 - After MPC finishes, verify prints:
   - Verifying MPC results against direct update for updated users
   - User X: Matched / Not matched
-  - All compared users matched between MPC and direct update. (if all matched)
+  - All compared users matched between MPC and direct update.claer (if all matched)
 
 Note: Results are printed at the end because verify runs after p0/p1/p2 complete.
 
