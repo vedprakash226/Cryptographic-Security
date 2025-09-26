@@ -3,6 +3,8 @@
 #include "mpc.hpp"
 #include "utility.hpp"
 #include <iostream>
+#include <fstream>
+#include <unordered_map>
 
 #if !defined(ROLE_p0) && !defined(ROLE_p1)
 #error "ROLE must be defined as ROLE_p0 or ROLE_p1"
@@ -55,14 +57,16 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         #endif
         std::vector<Share> u_shares = read_vector(u_file, k);
         std::vector<Share> v_shares = read_vector(v_file, k);
-        // to check the correctness, read the peer's shares as well
-        std::vector<Share> u_shares_peer = read_vector(u_file == "U0.txt" ? "U1.txt" : "U0.txt", k);
-        std::vector<Share> v_shares_peer = read_vector(v_file == "V0.txt" ? "V1.txt" : "V0.txt", k);
 
         auto queries = read_queries("queries.txt");
         std::cout << role << ": Read initial data for " << queries.size() << " queries." << std::endl;
 
         MPCProtocol mpc(peer_sock, p2_sock);
+
+        // Keep last reconstructed updated vector per user (P0 only)
+        #ifdef ROLE_p0
+        std::unordered_map<int, Share> final_reconstructed;
+        #endif
 
         // Step 3: Loop over queries and perform updates
         for (const auto& query : queries) {
@@ -74,32 +78,71 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             Share& u_b = u_shares[user_idx];
             const Share& v_b = v_shares[item_idx];
 
-            Share& u_b_peer = u_shares_peer[user_idx];
-            const Share& v_b_peer = v_shares_peer[item_idx];
-
-            // Perform the secure update
+            // Secure update
             Share u_prime_b = co_await mpc.secure_update(u_b, v_b, k);
-            u_shares[user_idx] = u_prime_b; // Update local share
-            
+            u_shares[user_idx] = u_prime_b;
+
             std::cout << role << ": Secure update complete." << std::endl;
 
-            // For debugging: exchange final shares and reconstruct the updated vector
+            // Reconstruct updated vector (for verification)
             co_await send_vec(peer_sock, u_prime_b);
             Share u_prime_peer = co_await recv_vec(peer_sock, k);
             Share u_reconstructed = u_prime_b + u_prime_peer;
 
             #ifdef ROLE_p0
+                final_reconstructed[user_idx] = u_reconstructed;
                 std::cout << "P0: Reconstructed u' for user " << user_idx << ": [";
                 for(size_t i=0; i<u_reconstructed.size(); ++i) {
-                    std::cout << u_reconstructed.data[i] << (i == u_reconstructed.size() - 1 ? "" : ", ");
+                    std::cout << u_reconstructed.data[i] << (i + 1 == u_reconstructed.size() ? "" : ", ");
                 }
                 std::cout << "]" << std::endl;
+            #endif
+
+            // Re-share u' into fresh random shares for P0 and P1
+            // P0 samples new random share r, sets P1's share as u' - r, sends it to P1.
+            // P1 receives and overwrites its local share for this user.
+            #ifdef ROLE_p0
+                Share new_p0(k);
+                new_p0.randomizer();                 // fresh random share for P0
+                Share new_p1 = u_reconstructed - new_p0; // complementary share for P1
+
+                // Overwrite P0's local share
+                u_shares[user_idx] = new_p0;
+
+                // Send P1 its new share
+                co_await send_vec(peer_sock, new_p1);
+            #else
+                // Receive P1's new share from P0
+                Share new_p1 = co_await recv_vec(peer_sock, k);
+
+                // Overwrite P1's local share
+                u_shares[user_idx] = new_p1;
             #endif
         }
 
         // Signal end of protocol to P2
         #ifdef ROLE_p0
             co_await send_val(p2_sock, 0);
+        #endif
+
+        // Persist reconstructed results (P0 writes mpc_results.txt)
+        #ifdef ROLE_p0
+        {
+            std::ofstream out("mpc_results.txt", std::ios::trunc);
+            if (!out.is_open()) throw std::runtime_error("Could not open mpc_results.txt for writing");
+            // Format: user_idx val0 val1 ... val{k-1}
+            for (const auto& kv : final_reconstructed) {
+                out << kv.first;
+                for (auto v : kv.second.data) out << " " << v;
+                out << "\n";
+            }
+            out.close();
+            // create a done flag so verifier knows the file is complete
+            std::ofstream done("mpc_results.done", std::ios::trunc);
+            done << "ok\n";
+            done.close();
+            std::cout << "P0: Wrote reconstructed results to mpc_results.txt and mpc_results.done" << std::endl;
+        }
         #endif
 
     } catch (std::exception& e) {

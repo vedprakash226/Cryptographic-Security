@@ -5,7 +5,7 @@
 #include<stdexcept>
 #include "common.hpp"
 typedef long long int ll;
-const int mod = 1000007; 
+const int mod = 1007; 
 
 struct Share{
     std:: vector<ll> data;

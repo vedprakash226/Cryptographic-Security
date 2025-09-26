@@ -39,3 +39,15 @@ services:
       - gen_data
       - p1
       - p2
+
+  verify:
+    build: .
+    image: verifier
+    command: /app/verify ${NUM_USERS:-100} ${NUM_ITEMS:-200} ${NUM_FEATURES:-2} ${NUM_QUERIES:-6}
+    volumes:
+      - ./data:/app/data
+    working_dir: /app/data
+    depends_on:
+      - p0
+      - p1
+      - p2

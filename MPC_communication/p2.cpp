@@ -17,16 +17,18 @@ awaitable<void> handle_clients(tcp::socket p0_socket, tcp::socket p1_socket) {
             std::vector<BeaverTriple> p0_triples(k);
             std::vector<BeaverTriple> p1_triples(k);
 
+            // using a single a for all the k triples
+            ll a = random_uint32()%mod;
+            ll a0 = random_uint32()%mod;
+            ll a1 = a - a0;
+
             for(ll i=0; i<k; ++i) {
-                ll a = random_uint32()%mod;
                 ll b = random_uint32()%mod;
                 ll c = a * b;
 
-                ll a0 = random_uint32()%mod;
                 ll b0 = random_uint32()%mod;
                 ll c0 = random_uint32()%mod;
 
-                ll a1 = a - a0;
                 ll b1 = b - b0;
                 ll c1 = c - c0;
 

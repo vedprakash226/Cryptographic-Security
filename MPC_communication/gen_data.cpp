@@ -21,6 +21,9 @@ void generator(const std::string& prefix, int row, int k) {
         // creating share for P1
         Share v1 = v - v0;
 
+        // for(auto &i: v0.data) std::cout<<i<<" "; std::cout<<std::endl; //debugging
+        // for(auto &i: v1.data) std::cout<<i<<" "; std::cout<<std::endl; //debugging
+
         write(prefix + "0.txt", v0);
         write(prefix + "1.txt", v1);
     }
