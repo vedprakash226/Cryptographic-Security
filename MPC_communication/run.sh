@@ -12,5 +12,4 @@ docker-compose down -v
 docker-compose build
 docker-compose up gen_data p2 p1 p0
 
-# Do NOT append args here; compose already injects them via ${...}
 docker-compose run --rm verify

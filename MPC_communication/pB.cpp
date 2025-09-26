@@ -10,7 +10,7 @@
 #error "ROLE must be defined as ROLE_p0 or ROLE_p1"
 #endif
 
-// Setup connection to P2
+// setting up connection with P2
 awaitable<tcp::socket> setup_p2_connection(boost::asio::io_context& io_context) {
     tcp::resolver resolver(io_context);
     auto endpoints = resolver.resolve("p2", "9002");
