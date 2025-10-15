@@ -1,126 +1,166 @@
-// gen_queries.cpp
-// Simple (naive) DPF generator and tester
-// Usage: ./gen_queries <DPF_size> <num_DPFs>
-//
-// This naive implementation stores, for each key, a full-length array of
-// shares such that share0[i] XOR share1[i] = f(i), where f is the point function:
-// f(i) = value if i == location, else 0.
-// This meets the assignment interface and EvalFull correctness checks.
-// To implement the compact, tree-based DPF (PRG + correction words) see notes below.
-
-#include <bits/stdc++.h>
+#include<bits/stdc++.h>
 using namespace std;
 
-using u64 = unsigned long long;
-using i64 = long long;
+// typedefs for convinence
+typedef uint64_t u64;
 
-// A DPF key (naive representation): full vector of 64-bit shares
-struct DPFKey {
-    vector<u64> shares;  // length = domain size
+static random_device rd;  // obtain a random number from hardware
+static uniform_int_distribution<u64> dist_u64; // define the range
+
+struct child{
+    u64 leftSeed, rightSeed;
+    bool leftFlag, rightFlag;
 };
 
-// Crypto-style RNG per assignment suggestion
-static std::mt19937_64 make_rng() {
-    std::random_device rd;
-    // random_device may be non-deterministic; seed mt19937_64 with it
-    std::seed_seq seq{rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd()};
-    return std::mt19937_64(seq);
+// ctr_base is used to have different outputs for different levels if the seed is same
+child Expand(u64 seed, u64 ctr_base = 0){
+    u64 init = seed ^ 0x243f6a8885a308d3ULL^(0x9e3779b97f4a7c15ULL * (ctr_base + 1));
+    mt19937_64 prng(init);
+
+    child out;
+    out.leftSeed = prng();
+    out.rightSeed = prng();
+    out.leftFlag = (prng() & 1ULL);
+    out.rightFlag = (prng() & 1ULL);
+    return out;
 }
 
-// generateDPF: naive full-array construction
-// location: target index in [0, size)
-// value: target 64-bit value at location
-// returns pair of DPFKey (k0, k1)
-pair<DPFKey, DPFKey> generateDPF(size_t size, size_t location, u64 value, std::mt19937_64 &rng) {
+// DPF key class declaration
+class DPFKey{
+    public:
+    u64 seed;
+    bool t0;
+    vector<u64> cw_sL, cw_sR;                 // seed corrections for Left/Right
+    vector<bool> left_adviceBits, right_adviceBits; // t-bit corrections for L/R
+    u64 final_cw;
+};
+
+// MSB-first bit helper
+static inline bool bit_msb(u64 x, u64 level, u64 depth){
+    return static_cast<bool>((x >> (depth - 1 - level)) & 1ULL);
+}
+
+pair<DPFKey, DPFKey> generateDPF(u64 location, u64 value, u64 N){
+    if(location>=N) throw runtime_error("location must in [0,N)");
+    u64 depth = N<=1?0:(u64)ceil(log2((long double)N));
+
+    // initialize the two DPF keys
     DPFKey k0, k1;
-    k0.shares.assign(size, 0ULL);
-    k1.shares.assign(size, 0ULL);
+    mt19937_64 prng(rd());
+    k0.seed = prng();
+    k1.seed = prng();
 
-    // choose random shares for key0 (full array)
-    for (size_t i = 0; i < size; ++i) {
-        // uniform 64-bit random
-        u64 r = rng();
-        k0.shares[i] = r;
+    // IMPORTANT: root t-bits must be opposite
+    k0.t0 = 1;
+    k1.t0 = 0;
+
+    // resize per-level arrays
+    k0.cw_sL.resize(depth); k0.cw_sR.resize(depth);
+    k1.cw_sL.resize(depth); k1.cw_sR.resize(depth);
+    k0.left_adviceBits.resize(depth);  k0.right_adviceBits.resize(depth);
+    k1.left_adviceBits.resize(depth);  k1.right_adviceBits.resize(depth);
+
+    // running states
+    u64 s0 = k0.seed, s1 = k1.seed;
+    bool t0 = k0.t0,   t1 = k1.t0;
+
+    // Build MSB -> LSB (works also when depth==0: loop doesn’t run)
+    for(u64 level = 0; level < depth; ++level){
+        bool b = bit_msb(location, level, depth);
+
+        child ns0 = Expand(s0, level);
+        child ns1 = Expand(s1, level);
+
+        // Compute correction words for both branches (before any application)
+        u64  cw_sL = ns0.leftSeed  ^ ns1.leftSeed;
+        u64  cw_sR = ns0.rightSeed ^ ns1.rightSeed;
+        bool cw_tL = ((ns0.leftFlag  ^ ns1.leftFlag)  ^ (b == 0));
+        bool cw_tR = ((ns0.rightFlag ^ ns1.rightFlag) ^ (b == 1));
+
+        // Store in both keys
+        k0.cw_sL[level] = cw_sL; k0.cw_sR[level] = cw_sR;
+        k1.cw_sL[level] = cw_sL; k1.cw_sR[level] = cw_sR;
+        k0.left_adviceBits[level]  = cw_tL; k0.right_adviceBits[level] = cw_tR;
+        k1.left_adviceBits[level]  = cw_tL; k1.right_adviceBits[level] = cw_tR;
+
+        // Apply CWs iff the running t==1
+        if(t0){
+            ns0.leftSeed  ^= cw_sL; ns0.rightSeed ^= cw_sR;
+            ns0.leftFlag  ^= cw_tL; ns0.rightFlag ^= cw_tR;
+        }
+        if(t1){
+            ns1.leftSeed  ^= cw_sL; ns1.rightSeed ^= cw_sR;
+            ns1.leftFlag  ^= cw_tL; ns1.rightFlag ^= cw_tR;
+        }
+
+        // Follow branch bit
+        if(!b){
+            s0 = ns0.leftSeed;  t0 = ns0.leftFlag;
+            s1 = ns1.leftSeed;  t1 = ns1.leftFlag;
+        }else{
+            s0 = ns0.rightSeed; t0 = ns0.rightFlag;
+            s1 = ns1.rightSeed; t1 = ns1.rightFlag;
+        }
     }
 
-    // key1 shares = key0 shares XOR f
-    // f(i) = value if i == location else 0
-    for (size_t i = 0; i < size; ++i) {
-        if (i == location) k1.shares[i] = k0.shares[i] ^ value;
-        else k1.shares[i] = k0.shares[i] ^ 0ULL;
-    }
+    // Final correction so XOR at alpha equals 'value'
+    u64 final_cw = (s0 ^ s1) ^ value;
+    k0.final_cw = final_cw;
+    k1.final_cw = final_cw;
 
     return {k0, k1};
 }
 
-// evalDPF: returns the share for a key at an index
-u64 evalDPF(const DPFKey &key, size_t index) {
-    if (index >= key.shares.size()) {
-        throw out_of_range("evalDPF: index out of range");
-    }
-    return key.shares[index];
-}
+// Evaluate a single key share
+static u64 evalOne(const DPFKey& key, u64 x, u64 N){
+    u64 depth = N<=1?0:(u64)ceil(log2((long double)N));
+    u64 s = key.seed;
+    bool t = key.t0;
 
-// EvalFull: evaluate both keys across all domain points, combine by XOR, and check correctness.
-// Returns true if test passes, false otherwise.
-bool EvalFull(const DPFKey &k0, const DPFKey &k1, size_t size, size_t location, u64 value, bool verbose=false) {
-    if (k0.shares.size() != size || k1.shares.size() != size) {
-        if (verbose) cerr << "EvalFull: key sizes do not match given size\n";
-        return false;
-    }
-
-    bool ok = true;
-    for (size_t i = 0; i < size; ++i) {
-        u64 a = evalDPF(k0, i);
-        u64 b = evalDPF(k1, i);
-        u64 comb = a ^ b;
-        if (i == location) {
-            if (comb != value) {
-                if (verbose) cerr << "Mismatch at location " << i << ": expected " << value << " got " << comb << "\n";
-                ok = false;
-                // do not break; check entire domain for full diagnostics
-            }
-        } else {
-            if (comb != 0ULL) {
-                if (verbose) cerr << "Non-zero at index " << i << ": got " << comb << "\n";
-                ok = false;
-            }
+    for(u64 level = 0; level < depth; ++level){
+        child ns = Expand(s, level);
+        if(t){
+            ns.leftSeed  ^= key.cw_sL[level];
+            ns.rightSeed ^= key.cw_sR[level];
+            ns.leftFlag  ^= key.left_adviceBits[level];
+            ns.rightFlag ^= key.right_adviceBits[level];
         }
+        bool b = bit_msb(x, level, depth);
+        if(!b){ s = ns.leftSeed;  t = ns.leftFlag; }
+        else  { s = ns.rightSeed; t = ns.rightFlag; }
     }
-    return ok;
+    return s ^ (t ? key.final_cw : 0ULL);
 }
 
-int main(int argc, char **argv) {
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
+// Evaluate both keys and XOR their outputs
+u64 evalDPF(DPFKey& key1, DPFKey& key2, u64 location, u64 N){
+    return evalOne(key1, location, N) ^ evalOne(key2, location, N);
+}
 
-    if (argc != 3) {
-        cerr << "Usage: " << argv[0] << " <DPF_size> <num_DPFs>\n";
+// Check correctness over full domain
+bool EvalFull(DPFKey &k0, DPFKey &k1, u64 N, u64 index, u64 value){
+    for(u64 x = 0; x < N; ++x){
+        u64 y = evalDPF(k0, k1, x, N);
+        u64 want = (x == index) ? value : 0ULL;
+        if(y != want) return false;
+    }
+    return true;
+}
+
+int main(int argc, char** argv) {
+    if(argc!=3){
+        cerr<<"Usage: ./main <DPF_size> <num_DPFs>"<<endl;
         return 1;
     }
 
-    size_t DPF_size = stoull(argv[1]);
-    size_t num_DPFs = stoull(argv[2]);
+    u64 N = stoull(argv[1]);
+    u64 count = stoull(argv[2]);
 
-    if (DPF_size == 0) {
-        cerr << "DPF_size must be > 0\n";
-        return 1;
+    for(int i=0;i<count;i++){
+        u64 location = rd()%N;
+        u64 value = (static_cast<u64>(rd())<<32) ^ rd();
+
+        auto [d0, d1] = generateDPF(location, value, N);
+        cout<<"Case "<<i+1<<": "<<(EvalFull(d0, d1, N, location, value) ? "✅ TEST Passed" : "❌ TEST Failed")<<endl;
     }
-
-    auto rng = make_rng();
-    std::uniform_int_distribution<size_t> loc_dist(0, DPF_size - 1);
-    std::uniform_int_distribution<u64> val_dist(0, std::numeric_limits<u64>::max());
-
-    for (size_t t = 0; t < num_DPFs; ++t) {
-        size_t loc = loc_dist(rng);
-        u64 val = val_dist(rng);
-
-        auto keys = generateDPF(DPF_size, loc, val, rng);
-        bool passed = EvalFull(keys.first, keys.second, DPF_size, loc, val);
-
-        cout << "DPF " << t+1 << " (size=" << DPF_size << ", location=" << loc << ", value=" << val << "): ";
-        cout << (passed ? "Test Passed" : "Test Failed") << "\n";
-    }
-
-    return 0;
 }
