@@ -3,7 +3,6 @@ using namespace std;
 
 // typedefs for convinence
 typedef uint64_t u64;
-
 static random_device rd;  // obtain a random number from hardware
 
 struct child{
@@ -11,17 +10,21 @@ struct child{
     bool leftFlag, rightFlag;
 };
 
+struct correctionWord{
+    u64 cw;
+    bool leftAdviceBit, rightAdviceBit;
+};
+
 // ctr_base is used to have different outputs for different levels if the seed is same
 child Expand(u64 seed, u64 ctr_base = 0){
-    u64 init = seed ^ 0x243f6a8885a308d3ULL^(0x9e3779b97f4a7c15ULL * (ctr_base + 1));
-    mt19937_64 prng(init);
+    mt19937_64 prng(seed);  // seed the generator
 
-    child out;
-    out.leftSeed = prng();
-    out.rightSeed = prng();
-    out.leftFlag = (prng() & 1ULL);
-    out.rightFlag = (prng() & 1ULL);
-    return out;
+    child next;
+    next.leftSeed = prng();
+    next.rightSeed = prng();
+    next.leftFlag = (prng() & 1ULL);
+    next.rightFlag = (prng() & 1ULL);
+    return next;
 }
 
 // DPF key class declaration
@@ -29,9 +32,14 @@ class DPFKey{
     public:
     u64 seed;
     bool t0;
-    vector<u64> cw_s;
-    vector<bool> leftAdviceBits, rightAdviceBits;
+    vector<correctionWord> cw_s;
     u64 final_cw;
+
+    // constructor to initialize the DPF key
+    DPFKey(int n){
+        seed = rd();
+        cw_s.resize(n);
+    }
 };
 
 pair<DPFKey, DPFKey> generateDPF(u64 location, u64 value, u64 N){
@@ -42,18 +50,9 @@ pair<DPFKey, DPFKey> generateDPF(u64 location, u64 value, u64 N){
     u64 depth = N<=1?0:(int)ceil(log2(N));
 
     //initializing the two DPF keys
-    DPFKey k0, k1;
-    k0.seed = rd();
-    k1.seed = rd();
+    DPFKey k0(depth), k1(depth);
     k0.t0 = 1;
     k1.t0 = 0;
-
-    k0.cw_s.resize(depth);
-    k1.cw_s.resize(depth);
-    k0.leftAdviceBits.resize(depth);
-    k1.leftAdviceBits.resize(depth);
-    k0.rightAdviceBits.resize(depth);
-    k1.rightAdviceBits.resize(depth);
 
     //initializing the current seeds and flags for both the trees
     u64 leftTree_currentSeed = k0.seed;
@@ -108,12 +107,9 @@ pair<DPFKey, DPFKey> generateDPF(u64 location, u64 value, u64 N){
         }
 
         // storing the correction words and the advice bits in both keys
-        k0.cw_s[level] = correction_word;
-        k1.cw_s[level] = correction_word;
-        k0.leftAdviceBits[level] = leftCorrectionAdviceBit;
-        k1.leftAdviceBits[level] = leftCorrectionAdviceBit;
-        k0.rightAdviceBits[level] = rightCorrectionAdviceBit;
-        k1.rightAdviceBits[level] = rightCorrectionAdviceBit;
+        correctionWord cw = {correction_word, leftCorrectionAdviceBit, rightCorrectionAdviceBit};
+        k0.cw_s[level] = cw;
+        k1.cw_s[level] = cw;
     }
 
     // finding the final correction word and setting it in both the keys
@@ -122,7 +118,6 @@ pair<DPFKey, DPFKey> generateDPF(u64 location, u64 value, u64 N){
     k1.final_cw = final_correctionWord;
 
     return {k0, k1};
-
 }
 
 // function to evaluate the DPF at a particular location
@@ -138,10 +133,10 @@ u64 evalDPF(DPFKey& key, u64 location, u64 N){
 
         // applying the correction word and the advice bits where the current flag is 1
         if(currentFlag){
-            ns0.leftSeed ^= key.cw_s[level];
-            ns0.rightSeed ^= key.cw_s[level];
-            ns0.leftFlag ^= key.leftAdviceBits[level];
-            ns0.rightFlag ^= key.rightAdviceBits[level];
+            ns0.leftSeed ^= key.cw_s[level].cw;
+            ns0.rightSeed ^= key.cw_s[level].cw;
+            ns0.leftFlag ^= key.cw_s[level].leftAdviceBit;
+            ns0.rightFlag ^= key.cw_s[level].rightAdviceBit;
         }
 
         // updating the current seed and the flag according to the path bit
@@ -189,6 +184,8 @@ int main(int argc, char** argv) {
             cout<<"Case "<<i+1<<": Test Passed"<<endl;
         }else{
             cout<<"Case "<<i+1<<": Test Failed"<<endl;
+            return 1;
         }
     }
+    return 0;
 }
