@@ -5,11 +5,13 @@ using namespace std;
 typedef uint64_t u64;
 static random_device rd;  // obtain a random number from hardware
 
+// structure to hold the left and right child seeds and flags
 struct child{
     u64 leftSeed, rightSeed;
     bool leftFlag, rightFlag;
 };
 
+// structure to hold the correction word and the advice bits for a level
 struct correctionWord{
     u64 cw;
     bool leftAdviceBit, rightAdviceBit;

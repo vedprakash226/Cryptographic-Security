@@ -4,10 +4,12 @@
 Implementation of **Distributed Point Function (DPF)** in **C++**, which allows two parties to share keys that encode a *point function* — i.e., a function that outputs a non-zero value at a single location and zero elsewhere — without revealing the location or value to either party individually.
 
 
+
 ## Implementations
 - Implements **DPF key generation** for a given index and value.  
 - Verifies correctness by ensuring the XOR of both evaluations reconstructs the desired point function.  
 - Uses **pseudo-random number generators (PRNG)** for deterministic expansion.  
+- If the advice bit of the current node is 1 I will do xor of its child seed values with the correction word.
 
 
 ## Summary
@@ -50,7 +52,7 @@ Encapsulates:
 - Vector of correction words (`cw_s`)  
 - Final correction word (`final_cw`)  
 
-## ⚙️ Core Functions
+## Function Used
 
 | Function | Description |
 |-----------|--------------|
