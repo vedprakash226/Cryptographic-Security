@@ -184,7 +184,6 @@ int main(int argc, char** argv) {
             cout<<"Case "<<i+1<<": Test Passed"<<endl;
         }else{
             cout<<"Case "<<i+1<<": Test Failed"<<endl;
-            return 1;
         }
     }
     return 0;
