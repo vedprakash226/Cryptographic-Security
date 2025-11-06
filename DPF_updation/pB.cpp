@@ -2,6 +2,7 @@
 #include "shares.hpp"
 #include "mpc.hpp"
 #include "utility.hpp"
+#include "DPF.hpp"
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
@@ -84,12 +85,46 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
              << " queries(users_only)=" << users_only.size()
              << " S-lines=" << s_shares.size() << endl;
 
+        // New: read DPF keys and negate hints
+        vector<DPFKey> dpf_keys;
+        {
+            ifstream kif(
+            #ifdef ROLE_p0
+                "DPF0.txt"
+            #else
+                "DPF1.txt"
+            #endif
+            );
+            if (!kif.is_open()) throw runtime_error("Could not open DPF0.txt/DPF1.txt");
+            while (kif.peek() != EOF) {
+                streampos pos = kif.tellg();
+                try {
+                    DPFKey K = readKey(kif);
+                    dpf_keys.push_back(K);
+                } catch (...) {
+                    kif.clear();
+                    kif.seekg(pos);
+                    string dummy;
+                    if (!(kif >> dummy)) break;
+                }
+            }
+        }
+        vector<int> negateBits;
+        {
+            ifstream nf("DPF_NEG.txt");
+            if (!nf.is_open()) throw runtime_error("Could not open DPF_NEG.txt");
+            int b; while (nf >> b) negateBits.push_back(b);
+        }
+        if ((int)dpf_keys.size() != (int)s_shares.size() ||
+            (int)negateBits.size() != (int)s_shares.size()) {
+            throw runtime_error("DPF files count mismatch with queries");
+        }
+
         MPCProtocol mpc(peer_sock, p2_sock);
 
-        // final reconstructed vector per user
-        #ifdef ROLE_p0
-        unordered_map<int, Share> final_reconstructed;
-        #endif
+        // No user reconstruction anymore; only item update via DPF
+
+        const ll inv2 = (mod + 1) / 2; // since mod is prime
 
         for (size_t q = 0; q < users_only.size(); ++q) {
             int user_idx = users_only[q];
@@ -98,31 +133,36 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             // Obliviously select v_j share without revealing j
             Share v_sel_b = co_await mpc.OT_select(s_b, v_shares, n, k);
 
-            // securely updating the user share
-            Share& u_b = u_shares[user_idx];
-            Share u_prime_b = co_await mpc.updateProtocol(u_b, v_sel_b, k);
-            u_shares[user_idx] = u_prime_b;
+            // Step 2 (items): compute M_b = ui * (1 - <ui, v_sel>)
+            Share& u_b = u_shares[user_idx]; // user share (unchanged globally)
+            Share M_b = co_await mpc.itemUpdateShare(u_b, v_sel_b, k);
 
-            // Reconstruct updated vector
-            co_await send_vec(peer_sock, u_prime_b);
-            Share u_prime_peer = co_await recv_vec(peer_sock, k);
-            Share u_reconstructed = u_prime_b + u_prime_peer;
+            // Step 3: masked differences to get FCWm per dimension
+            const DPFKey& myKey = dpf_keys[q];
+            ll fcw_b = DPF_getFinalCW(myKey);
+            Share masked(k);
+            for (int d = 0; d < k; ++d) masked.data[d] = subm(M_b.data[d], fcw_b);
+            co_await send_vec(peer_sock, masked);
+            Share peer_masked = co_await recv_vec(peer_sock, k);
+            Share FCWm = masked + peer_masked; // FCWm[d] = M[d]
 
-            // Re-share randomized
+            // Step 4: evaluate DPF signs and add to V shares
+            bool negateThisParty =
             #ifdef ROLE_p0
-                Share new_p0(k);
-                new_p0.randomizer();                 // fresh random share for P0
-                Share new_p1 = u_reconstructed - new_p0; // complementary share for P1
-                u_shares[user_idx] = new_p0;
-                co_await send_vec(peer_sock, new_p1);
+                (negateBits[q] == 1); // 1 => P0 negates
             #else
-                Share new_p1 = co_await recv_vec(peer_sock, k);
-                u_shares[user_idx] = new_p1;
+                (negateBits[q] == 0); // 0 => P1 negates
             #endif
+            vector<int8_t> signs = evalSigns(myKey, (u64)n, negateThisParty);
 
-            #ifdef ROLE_p0
-            final_reconstructed[user_idx] = u_reconstructed;
-            #endif
+            for (int idx = 0; idx < n; ++idx) {
+                ll s_mod = (signs[idx] == 1) ? 1 : (mod - 1);
+                ll coeff = mulm(s_mod, inv2); // s/2 mod p
+                for (int d = 0; d < k; ++d) {
+                    ll add = mulm(coeff, FCWm.data[d]); // add only at j in sum across parties
+                    v_shares[idx].data[d] = addm(v_shares[idx].data[d], add);
+                }
+            }
         }
 
         // Signal end of protocol to P2
@@ -130,21 +170,41 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             co_await send_val(p2_sock, 0);
         #endif
 
-        // writing final result and ok flag in file for verification 
+        // New: reconstruct final V at P0 (for verification only)
         #ifdef ROLE_p0
         {
-            ofstream out("mpc_results.txt", ios::trunc);
-            if (!out.is_open()) throw runtime_error("Could not open mpc_results.txt for writing");
-            std::cout << "P0: Writing " << final_reconstructed.size() << " users to mpc_results.txt\n";
-            for (const auto& kv : final_reconstructed) {
-                out << kv.first;
-                for (auto v : kv.second.data) out << " " << v;
-                out << "\n";
+            // request P1 to dump its final V shares
+            co_await send_val(peer_sock, (ll)-1);
+            ofstream vout("mpc_V_results.txt", ios::trunc);
+            if (!vout.is_open()) throw runtime_error("Could not open mpc_V_results.txt for writing");
+            for (int idx = 0; idx < n; ++idx) {
+                Share peer_row = co_await recv_vec(peer_sock, k);
+                Share recon = v_shares[idx] + peer_row;
+                vout << idx;
+                for (auto v : recon.data) vout << " " << v;
+                vout << "\n";
             }
-            out.close();
+            vout.close();
+            cout << "P0: Wrote mpc_V_results.txt" << endl;
+        }
+        #else
+        {
+            // wait for P0's request and send our final V shares
+            ll tag = co_await recv_val(peer_sock);
+            if (tag != -1) throw runtime_error("Unexpected tag while dumping V shares");
+            for (int idx = 0; idx < n; ++idx) {
+                co_await send_vec(peer_sock, v_shares[idx]);
+            }
+        }
+        #endif
+
+        // signal completion for verifier
+        #ifdef ROLE_p0
+        {
             ofstream done("mpc_results.done", ios::trunc);
-            done << "ok\n"; done.close();
-            cout << "P0: Wrote mpc_results.txt and mpc_results.done" << endl;
+            done << "ok\n";
+            done.close();
+            cout << "P0: Wrote mpc_results.done" << endl;
         }
         #endif
 

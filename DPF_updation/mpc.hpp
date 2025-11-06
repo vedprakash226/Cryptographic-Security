@@ -147,6 +147,19 @@ public:
         co_return u_prime_b;
     }
 
+    // New: item update share M = ui * (1 - <ui, vj>)
+    awaitable<Share> itemUpdateShare(const Share& ui, const Share& vj, int k) {
+        ll prodShare = co_await MPC_DOTPRODUCT(ui, vj, k);
+        ll delta_share;
+        #ifdef ROLE_p0
+            delta_share = subm(1, prodShare);
+        #else
+            delta_share = subm(0, prodShare);
+        #endif
+        Share m_b = co_await scalarVecProd(delta_share, ui, k);
+        co_return m_b;
+    }
+
     // Expose oblivious selection for caller
     awaitable<Share> OT_select(const Share& s_b, const vector<Share>& V_rows_b, int n, int k) {
         co_return co_await select_item_oblivious(s_b, V_rows_b, n, k);

@@ -49,9 +49,6 @@ inline vector<Share> read_vector(const string& filename, int k) {
         while (ss >> val) {
             vec_data.push_back(val);
         }
-        if (vec_data.size() != k) {
-             throw runtime_error("Malformed data in " + filename + ": unexpected vector size.");
-        }
         all_vectors.emplace_back(vec_data);
     }
     return all_vectors;

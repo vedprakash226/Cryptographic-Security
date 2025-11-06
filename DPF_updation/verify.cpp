@@ -28,14 +28,19 @@ static unordered_map<int, Share> readMPC_result(const string& path, int k) {
     return res;
 }
 
-// Direct update: u_i' = u_i + v_j * (1 - <u_i, v_j>) (mirror MPC math mod p)
-static void directProtocol(Share& ui, const Share& vj) {
+// Direct step: apply only the item update using pre-step values
+static void directStep(vector<Share>& U, vector<Share>& V, int ui, int vj) {
+    Share u_old = U[ui];
+    Share v_old = V[vj];
+
     ll dot = 0;
-    for (int i = 0; i < (int)ui.size(); i++)
-        dot = addm(dot, mulm(ui.data[i], vj.data[i]));
+    for (int t = 0; t < (int)u_old.size(); ++t)
+        dot = addm(dot, mulm(u_old.data[t], v_old.data[t]));
     ll delta = subm(1, dot);
-    for (int i = 0; i < (int)ui.size(); ++i)
-        ui.data[i] = addm(ui.data[i], mulm(vj.data[i], delta));
+
+    // v_j' = v_j + u_i * delta
+    for (int t = 0; t < (int)v_old.size(); ++t)
+        V[vj].data[t] = addm(V[vj].data[t], mulm(u_old.data[t], delta));
 }
 
 static bool fileWait(const string& path, int max_seconds) {
@@ -57,21 +62,16 @@ int main(int argc, char* argv[]) {
         int k = stoi(argv[3]);
         (void)m; (void)n;
 
-        // waiting for the P0 to finish its protocol computation
+        // wait for completion flag from P0
         if (!fileWait("mpc_results.done", /*max_seconds=*/3600)) {
             cerr << "Timeout waiting for mpc_results.done. Exiting.\n";
             return 2;
         }
-        // sleep to ensure file flusing
         this_thread::sleep_for(chrono::milliseconds(200));
 
-        // Now read mpc_results.txt
-        if (!fileExist("mpc_results.txt")) {
-            cerr << "mpc_results.txt not found after done flag. Exiting.\n";
-            return 2;
-        }
+        // Items results will be in mpc_V_results.txt
 
-        // Read initial shares and reconstruct original U, V
+        // reconstruct original U, V from shares
         auto U0 = read_vector("U0.txt", k);
         auto U1 = read_vector("U1.txt", k);
         auto V0 = read_vector("V0.txt", k);
@@ -83,51 +83,36 @@ int main(int argc, char* argv[]) {
 
         vector<Share> U(U0.size(), Share(k));
         vector<Share> V(V0.size(), Share(k));
-        for (int i = 0; i < U.size(); i++) U[i] = U0[i] + U1[i];
-        for (int j = 0; j < V.size(); j++) V[j] = V0[j] + V1[j];
+        for (int i = 0; i < (int)U.size(); i++) U[i] = U0[i] + U1[i];
+        for (int j = 0; j < (int)V.size(); j++) V[j] = V0[j] + V1[j];
 
-        // Replay queries directly
+        // Replay queries directly: item-only update
         auto queries = read_queries("queries.txt");
         for (const auto& q : queries) {
             int ui = q.first;
             int vj = q.second;
-            directProtocol(U[ui], V[vj]);
+            directStep(U, V, ui, vj);
         }
 
-        // Read MPC results (only for updated users)
-        auto mpc_res = readMPC_result("mpc_results.txt", k);
-
-        // Compare and print
-        cout << "Verifying MPC results against direct update for updated users" << "\n";
+        // Read MPC item results
+        auto mpc_res_items = readMPC_result("mpc_V_results.txt", k);
         bool all_match = true;
-        for (const auto& kv : mpc_res) {
+
+        // Compare items
+        cout << "Verifying MPC results against direct update (items)" << "\n";
+        for (const auto& kv : mpc_res_items) {
             int idx = kv.first;
-            const Share& mpc_u = kv.second;
-            const Share& dir_u = U[idx];
-
-            bool match = true;
-            if (mpc_u.size() != dir_u.size()){
-                throw runtime_error("MPC and direct update size mismatch");
-                return 0;
-            }
-            else {
-                for (int i = 0; i < mpc_u.size(); ++i) {
-                    if (mpc_u.data[i] != dir_u.data[i]){
-                        match = false;
-                        all_match = false;
-                        break;  
-                    }
-                }
-            }
-
-            cout << "User " << idx << ": "<< (match ? "Matched" : "Not matched") << "\n";
+            const Share& mpc_v = kv.second;
+            const Share& dir_v = V[idx];
+            bool match = (mpc_v.size() == dir_v.size());
+            for (int t = 0; match && t < mpc_v.size(); ++t)
+                match &= (mpc_v.data[t] == dir_v.data[t]);
+            cout << "Item " << idx << ": " << (match ? "Matched" : "Not matched") << "\n";
+            all_match &= match;
         }
 
-        if (all_match) {
-            cout << "Successful match between all MPC and direct update.\n";
-        }
+        if (all_match) cout << "Successful match between MPC and direct updates (items only).\n";
         return all_match ? 0 : 3;
-
     } catch (const exception& e) {
         cerr << "verify error: " << e.what() << "\n";
         return 1;

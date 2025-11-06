@@ -26,5 +26,4 @@ docker-compose up p2 p1 p0
 # run verifier last
 docker-compose run --rm verify
 
-docker-compose down -v
 echo "MPC run completed successfully."

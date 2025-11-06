@@ -13,9 +13,9 @@ WORKDIR /app
 COPY . .
 
 # Compile executables
-RUN g++ -std=c++20 -O2 gen_data.cpp -o gen_data
-RUN g++ -std=c++20 -O2 -pthread pB.cpp -o p0 -DROLE_p0 -lboost_system
-RUN g++ -std=c++20 -O2 -pthread pB.cpp -o p1 -DROLE_p1 -lboost_system
+RUN g++ -std=c++20 -O2 gen_data.cpp DPF.cpp -o gen_data
+RUN g++ -std=c++20 -O2 -pthread pB.cpp DPF.cpp -o p0 -DROLE_p0 -lboost_system
+RUN g++ -std=c++20 -O2 -pthread pB.cpp DPF.cpp -o p1 -DROLE_p1 -lboost_system
 RUN g++ -std=c++20 -O2 -pthread p2.cpp -o p2 -lboost_system
 RUN g++ -std=c++20 -O2 verify.cpp -o verify
 
