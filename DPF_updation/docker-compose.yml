@@ -1,0 +1,54 @@
+services:
+  gen_data:
+    build: .
+    image: gen_data_image
+    command: /app/gen_data ${NUM_USERS:-100} ${NUM_ITEMS:-200} ${NUM_FEATURES:-2} ${NUM_QUERIES:-6}
+    volumes:
+      - ./data:/app/data
+    working_dir: /app/data
+
+  p2:
+    build: .
+    image: third_party
+    command: /app/p2 ${NUM_USERS:-100} ${NUM_ITEMS:-200} ${NUM_FEATURES:-2} ${NUM_QUERIES:-6}
+    working_dir: /app/data
+
+  p1:
+    build: .
+    image: second_server
+    command: /app/p1 ${NUM_USERS:-100} ${NUM_ITEMS:-200} ${NUM_FEATURES:-2} ${NUM_QUERIES:-6}
+    volumes:
+      - ./data:/app/data
+    working_dir: /app/data
+    depends_on:
+      - gen_data
+      - p2
+  
+  p0:
+    build: .
+    image: first_server
+    command: /app/p0 ${NUM_USERS:-100} ${NUM_ITEMS:-200} ${NUM_FEATURES:-2} ${NUM_QUERIES:-6}
+    volumes:
+      - ./data:/app/data
+    working_dir: /app/data
+    depends_on:
+      - gen_data
+      - p1
+      - p2
+
+  verify:
+    build: .
+    image: verifier
+    entrypoint: ["/app/verify"]
+    command: ["${NUM_USERS:-100}", "${NUM_ITEMS:-200}", "${NUM_FEATURES:-2}", "${NUM_QUERIES:-6}"]
+    volumes:
+      - ./data:/app/data
+    working_dir: /app/data
+    restart: "no"
+    depends_on:
+      p0:
+        condition: service_completed_successfully
+      p1:
+        condition: service_completed_successfully
+      p2:
+        condition: service_completed_successfully
