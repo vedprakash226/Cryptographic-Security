@@ -60,30 +60,24 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         }
 
         // reading the data 
-        string u_file, v_file, s_file;
+        string u_file, v_file;
         #ifdef ROLE_p0
-            u_file = "U0.txt"; v_file = "V0.txt"; s_file = "S0.txt";
+            u_file = "U0.txt"; v_file = "V0.txt";
         #else
-            u_file = "U1.txt"; v_file = "V1.txt"; s_file = "S1.txt";
+            u_file = "U1.txt"; v_file = "V1.txt";
         #endif
         vector<Share> u_shares = read_vector(u_file, k);
         vector<Share> v_shares = read_vector(v_file, k); // n rows, k dims
         int n = static_cast<int>(v_shares.size());
 
-        // Read selector shares: each line has n entries
-        vector<Share> s_shares = read_vector(s_file, n);
-
         // Read user-only queries (one user index per line)
         auto users_only = read_users("queries_users.txt");
-        if (static_cast<int>(users_only.size()) != static_cast<int>(s_shares.size())) {
-            throw runtime_error("queries_users.txt and S.txt line count mismatch");
-        }
+        
         cout << role << ": Read data for " << users_only.size() << " queries (private item index)." << endl;
         cout << role << ": counts -> U=" << u_shares.size()
              << " V(n)=" << v_shares.size()
              << " k=" << k
-             << " queries(users_only)=" << users_only.size()
-             << " S-lines=" << s_shares.size() << endl;
+             << " queries(users_only)=" << users_only.size() << endl;
 
         // New: read DPF keys and negate hints
         vector<DPFKey> dpf_keys;
@@ -115,30 +109,38 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             if (!nf.is_open()) throw runtime_error("Could not open DPF_NEG.txt");
             int b; while (nf >> b) negateBits.push_back(b);
         }
-        if ((int)dpf_keys.size() != (int)s_shares.size() ||
-            (int)negateBits.size() != (int)s_shares.size()) {
+        if ((int)dpf_keys.size() != (int)users_only.size() ||
+            (int)negateBits.size() != (int)users_only.size()) {
             throw runtime_error("DPF files count mismatch with queries");
         }
 
         MPCProtocol mpc(peer_sock, p2_sock);
 
         // No user reconstruction anymore; only item update via DPF
+        // For verification we will also reconstruct updated users on P0.
+        #ifdef ROLE_p0
+        unordered_map<int, Share> final_reconstructed; // user_idx -> u_i'
+        #endif
 
         const ll inv2 = (mod + 1) / 2; // since mod is prime
 
         for (size_t q = 0; q < users_only.size(); ++q) {
             int user_idx = users_only[q];
-            const Share& s_b = s_shares[q]; // length n selector share
-
-            // Obliviously select v_j share without revealing j
-            Share v_sel_b = co_await mpc.OT_select(s_b, v_shares, n, k);
+            // DPF-based selection of v_j without S0/S1
+            const DPFKey& myKey = dpf_keys[q];
+            bool negateThisParty =
+            #ifdef ROLE_p0
+                (negateBits[q] == 1);
+            #else
+                (negateBits[q] == 0);
+            #endif
+            Share v_sel_b = co_await mpc.DPF_select_item(myKey, negateThisParty, v_shares, n, k);
 
             // Step 2 (items): compute M_b = ui * (1 - <ui, v_sel>)
             Share& u_b = u_shares[user_idx]; // user share (unchanged globally)
             Share M_b = co_await mpc.itemUpdateShare(u_b, v_sel_b, k);
 
             // Step 3: masked differences to get FCWm per dimension
-            const DPFKey& myKey = dpf_keys[q];
             ll fcw_b = DPF_getFinalCW(myKey);
             Share masked(k);
             for (int d = 0; d < k; ++d) masked.data[d] = subm(M_b.data[d], fcw_b);
@@ -147,12 +149,6 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             Share FCWm = masked + peer_masked; // FCWm[d] = M[d]
 
             // Step 4: evaluate DPF signs and add to V shares
-            bool negateThisParty =
-            #ifdef ROLE_p0
-                (negateBits[q] == 1); // 1 => P0 negates
-            #else
-                (negateBits[q] == 0); // 0 => P1 negates
-            #endif
             vector<int8_t> signs = evalSigns(myKey, (u64)n, negateThisParty);
 
             for (int idx = 0; idx < n; ++idx) {
@@ -163,6 +159,25 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
                     v_shares[idx].data[d] = addm(v_shares[idx].data[d], add);
                 }
             }
+
+            // Secure USER update as well: u_i' = u_i + v_sel * (1 - <u_i, v_sel>)
+            Share u_prime_b = co_await mpc.updateProtocol(u_b, v_sel_b, k);
+            u_shares[user_idx] = u_prime_b; // update our local share
+
+            // Reconstruct u_i' (verify only), then re-share fresh
+            co_await send_vec(peer_sock, u_prime_b);
+            Share u_prime_peer = co_await recv_vec(peer_sock, k);
+            Share u_reconstructed = u_prime_b + u_prime_peer; // full u_i'
+            #ifdef ROLE_p0
+                final_reconstructed[user_idx] = u_reconstructed;
+                Share new_p0(k); new_p0.randomizer();
+                Share new_p1 = u_reconstructed - new_p0;
+                u_shares[user_idx] = new_p0;
+                co_await send_vec(peer_sock, new_p1);
+            #else
+                Share new_p1 = co_await recv_vec(peer_sock, k);
+                u_shares[user_idx] = new_p1;
+            #endif
         }
 
         // Signal end of protocol to P2
@@ -189,7 +204,6 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         }
         #else
         {
-            // wait for P0's request and send our final V shares
             ll tag = co_await recv_val(peer_sock);
             if (tag != -1) throw runtime_error("Unexpected tag while dumping V shares");
             for (int idx = 0; idx < n; ++idx) {
@@ -198,13 +212,21 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         }
         #endif
 
-        // signal completion for verifier
+        // Write final user reconstructions and completion flag
         #ifdef ROLE_p0
         {
+            ofstream out("mpc_results.txt", ios::trunc);
+            if (!out.is_open()) throw runtime_error("Could not open mpc_results.txt for writing");
+            for (const auto& kv : final_reconstructed) {
+                out << kv.first;
+                for (auto v : kv.second.data) out << " " << v;
+                out << "\n";
+            }
+            out.close();
+
             ofstream done("mpc_results.done", ios::trunc);
-            done << "ok\n";
-            done.close();
-            cout << "P0: Wrote mpc_results.done" << endl;
+            done << "ok\n"; done.close();
+            cout << "P0: Wrote mpc_results.txt and mpc_results.done" << endl;
         }
         #endif
 

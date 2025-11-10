@@ -4,6 +4,7 @@
 #include "shares.hpp"
 #include <vector>
 #include "utility.hpp"
+#include "DPF.hpp"
 using namespace std;
 typedef long long int ll;
 
@@ -130,6 +131,24 @@ private:
 public:
 
     MPCProtocol(tcp::socket& peer, tcp::socket& p2) : peer_sock(peer), p2_sock(p2) {}
+
+    // DPF-based selection of v_j:
+    // Evaluate DPF to get signed vector s in {+1,-1}^n (with insecure global negation).
+    // Coeff per index: coeff = s/2 (mod p). Across parties, coeffs sum to 1 at j and 0 elsewhere.
+    // Return v_sel = sum_t coeff_t * V[t].
+    awaitable<Share> DPF_select_item(const DPFKey& key, bool negateThisParty,
+                                     const vector<Share>& V_rows_b, int n, int k) {
+        const ll inv2 = (mod + 1) / 2; // 1/2 mod p (p odd)
+        vector<int8_t> signs = evalSigns(key, (u64)n, negateThisParty);
+        Share acc(k); // zero
+        for (int idx = 0; idx < n; ++idx) {
+            ll s_mod = (signs[idx] == 1) ? 1 : (mod - 1);
+            ll coeff = mulm(s_mod, inv2);         // coeff = +/- 1/2
+            Share term = co_await scalarVecProd(coeff, V_rows_b[idx], k);
+            for (int d = 0; d < k; ++d) acc.data[d] = addm(acc.data[d], term.data[d]);
+        }
+        co_return acc; // equals v_j in additive shares
+    }
 
     // function for full secure update protocol for u_i <- u_i + v_j * (1 - <u_i, v_j>)
     awaitable<Share> updateProtocol(const Share& ui, const Share& vj, int k) {

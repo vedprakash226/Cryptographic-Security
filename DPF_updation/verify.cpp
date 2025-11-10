@@ -28,7 +28,7 @@ static unordered_map<int, Share> readMPC_result(const string& path, int k) {
     return res;
 }
 
-// Direct step: apply only the item update using pre-step values
+// Direct step: apply both updates using the same pre-step values
 static void directStep(vector<Share>& U, vector<Share>& V, int ui, int vj) {
     Share u_old = U[ui];
     Share v_old = V[vj];
@@ -41,6 +41,10 @@ static void directStep(vector<Share>& U, vector<Share>& V, int ui, int vj) {
     // v_j' = v_j + u_i * delta
     for (int t = 0; t < (int)v_old.size(); ++t)
         V[vj].data[t] = addm(V[vj].data[t], mulm(u_old.data[t], delta));
+
+    // u_i' = u_i + v_j * delta
+    for (int t = 0; t < (int)u_old.size(); ++t)
+        U[ui].data[t] = addm(U[ui].data[t], mulm(v_old.data[t], delta));
 }
 
 static bool fileWait(const string& path, int max_seconds) {
@@ -76,10 +80,6 @@ int main(int argc, char* argv[]) {
         auto U1 = read_vector("U1.txt", k);
         auto V0 = read_vector("V0.txt", k);
         auto V1 = read_vector("V1.txt", k);
-        if (U0.size() != U1.size() || V0.size() != V1.size()) {
-            throw runtime_error("U0/U1 or V0/V1 size mismatch");
-            return 1;
-        }
 
         vector<Share> U(U0.size(), Share(k));
         vector<Share> V(V0.size(), Share(k));
@@ -94,8 +94,9 @@ int main(int argc, char* argv[]) {
             directStep(U, V, ui, vj);
         }
 
-        // Read MPC item results
+        // Read MPC item results and user results
         auto mpc_res_items = readMPC_result("mpc_V_results.txt", k);
+        auto mpc_res_users = readMPC_result("mpc_results.txt", k);
         bool all_match = true;
 
         // Compare items
@@ -111,7 +112,20 @@ int main(int argc, char* argv[]) {
             all_match &= match;
         }
 
-        if (all_match) cout << "Successful match between MPC and direct updates (items only).\n";
+        // Compare users
+        cout << "Verifying MPC results against direct update (users)" << "\n";
+        for (const auto& kv : mpc_res_users) {
+            int idx = kv.first;
+            const Share& mpc_u = kv.second;
+            const Share& dir_u = U[idx];
+            bool match = (mpc_u.size() == dir_u.size());
+            for (int t = 0; match && t < mpc_u.size(); ++t)
+                match &= (mpc_u.data[t] == dir_u.data[t]);
+            cout << "User " << idx << ": " << (match ? "Matched" : "Not matched") << "\n";
+            all_match &= match;
+        }
+
+        if (all_match) cout << "Successful match between MPC and direct updates (users and items).\n";
         return all_match ? 0 : 3;
     } catch (const exception& e) {
         cerr << "verify error: " << e.what() << "\n";
