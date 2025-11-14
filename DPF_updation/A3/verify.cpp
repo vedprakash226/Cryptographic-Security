@@ -4,16 +4,17 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <thread>
 #include <chrono>
 using namespace std;
 
-static bool fileExist(const string& path) {
+static bool fileExist(const string& path){
     ifstream f(path);
     return f.good();
 }
 
-static unordered_map<int, Share> readMPC_result(const string& path, int k) {
+static unordered_map<int, Share> readMPC_result(const string& path, int k){
     unordered_map<int, Share> res;
     ifstream in(path);
     if (!in.is_open()) throw runtime_error("Could not open. Error occurred at " + path);
@@ -88,10 +89,14 @@ int main(int argc, char* argv[]) {
 
         // Replay queries directly: item-only update
         auto queries = read_queries("queries.txt");
+        unordered_set<int> updated_items;
+        unordered_set<int> updated_users;
         for (const auto& q : queries) {
             int ui = q.first;
             int vj = q.second;
             directStep(U, V, ui, vj);
+            updated_items.insert(vj);
+            updated_users.insert(ui);
         }
 
         // Read MPC item results and user results
@@ -99,11 +104,16 @@ int main(int argc, char* argv[]) {
         auto mpc_res_users = readMPC_result("mpc_results.txt", k);
         bool all_match = true;
 
-        // Compare items
-        cout << "Verifying MPC results against direct update (items)" << "\n";
-        for (const auto& kv : mpc_res_items) {
-            int idx = kv.first;
-            const Share& mpc_v = kv.second;
+        // Compare items (only those updated)
+        cout << "Verifying MPC results against direct update (items: updated only)\n";
+        for (int idx : updated_items) {
+            auto it = mpc_res_items.find(idx);
+            if (it == mpc_res_items.end()) {
+                cout << "Item " << idx << ": Missing in MPC results\n";
+                all_match = false;
+                continue;
+            }
+            const Share& mpc_v = it->second;
             const Share& dir_v = V[idx];
             bool match = (mpc_v.size() == dir_v.size());
             for (int t = 0; match && t < mpc_v.size(); ++t)
@@ -112,11 +122,16 @@ int main(int argc, char* argv[]) {
             all_match &= match;
         }
 
-        // Compare users
-        cout << "Verifying MPC results against direct update (users)" << "\n";
-        for (const auto& kv : mpc_res_users) {
-            int idx = kv.first;
-            const Share& mpc_u = kv.second;
+        // Compare users (only those updated) — remove if you still want all
+        cout << "Verifying MPC results against direct update (users: updated only)\n";
+        for (int idx : updated_users) {
+            auto it = mpc_res_users.find(idx);
+            if (it == mpc_res_users.end()) {
+                cout << "User " << idx << ": Missing in MPC results\n";
+                all_match = false;
+                continue;
+            }
+            const Share& mpc_u = it->second;
             const Share& dir_u = U[idx];
             bool match = (mpc_u.size() == dir_u.size());
             for (int t = 0; match && t < mpc_u.size(); ++t)

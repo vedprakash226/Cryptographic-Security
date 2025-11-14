@@ -6,6 +6,7 @@
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
+#include <chrono>
 using namespace std;
 
 #if !defined(ROLE_p0) && !defined(ROLE_p1)
@@ -119,14 +120,23 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
         // No user reconstruction anymore; only item update via DPF
         // For verification we will also reconstruct updated users on P0.
         #ifdef ROLE_p0
-        unordered_map<int, Share> final_reconstructed; // user_idx -> u_i'
+        unordered_map<int, Share> final_reconstructed;
+        std::vector<long long> item_us, user_us;
         #endif
 
         const ll inv2 = (mod + 1) / 2; // since mod is prime
 
         for (size_t q = 0; q < users_only.size(); ++q) {
             int user_idx = users_only[q];
-            // DPF-based selection of v_j without S0/S1
+
+            auto t_item_start =
+            #ifdef ROLE_p0
+                chrono::steady_clock::now();
+            #else
+                chrono::steady_clock::now();
+            #endif
+
+            // DPF-based selection
             const DPFKey& myKey = dpf_keys[q];
             bool negateThisParty =
             #ifdef ROLE_p0
@@ -136,38 +146,37 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             #endif
             Share v_sel_b = co_await mpc.DPF_select_item(myKey, negateThisParty, v_shares, n, k);
 
-            // Step 2 (items): compute M_b = ui * (1 - <ui, v_sel>)
-            Share& u_b = u_shares[user_idx]; // user share (unchanged globally)
+            // Item update share
+            Share& u_b = u_shares[user_idx];
             Share M_b = co_await mpc.itemUpdateShare(u_b, v_sel_b, k);
 
-            // Step 3: masked differences to get FCWm per dimension
             ll fcw_b = DPF_getFinalCW(myKey);
             Share masked(k);
             for (int d = 0; d < k; ++d) masked.data[d] = subm(M_b.data[d], fcw_b);
             co_await send_vec(peer_sock, masked);
             Share peer_masked = co_await recv_vec(peer_sock, k);
-            Share FCWm = masked + peer_masked; // FCWm[d] = M[d]
+            Share FCWm = masked + peer_masked;
 
-            // Step 4: evaluate DPF signs and add to V shares
             vector<int8_t> signs = evalSigns(myKey, (u64)n, negateThisParty);
-
             for (int idx = 0; idx < n; ++idx) {
                 ll s_mod = (signs[idx] == 1) ? 1 : (mod - 1);
-                ll coeff = mulm(s_mod, inv2); // s/2 mod p
+                ll coeff = mulm(s_mod, inv2);
                 for (int d = 0; d < k; ++d) {
-                    ll add = mulm(coeff, FCWm.data[d]); // add only at j in sum across parties
+                    ll add = mulm(coeff, FCWm.data[d]);
                     v_shares[idx].data[d] = addm(v_shares[idx].data[d], add);
                 }
             }
 
-            // Secure USER update as well: u_i' = u_i + v_sel * (1 - <u_i, v_sel>)
-            Share u_prime_b = co_await mpc.updateProtocol(u_b, v_sel_b, k);
-            u_shares[user_idx] = u_prime_b; // update our local share
+            auto t_item_end = chrono::steady_clock::now();
 
-            // Reconstruct u_i' (verify only), then re-share fresh
+            auto t_user_start = chrono::steady_clock::now();
+            // User update
+            Share u_prime_b = co_await mpc.updateProtocol(u_b, v_sel_b, k);
+            u_shares[user_idx] = u_prime_b;
+
             co_await send_vec(peer_sock, u_prime_b);
             Share u_prime_peer = co_await recv_vec(peer_sock, k);
-            Share u_reconstructed = u_prime_b + u_prime_peer; // full u_i'
+            Share u_reconstructed = u_prime_b + u_prime_peer;
             #ifdef ROLE_p0
                 final_reconstructed[user_idx] = u_reconstructed;
                 Share new_p0(k); new_p0.randomizer();
@@ -177,6 +186,12 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             #else
                 Share new_p1 = co_await recv_vec(peer_sock, k);
                 u_shares[user_idx] = new_p1;
+            #endif
+            auto t_user_end = chrono::steady_clock::now();
+
+            #ifdef ROLE_p0
+                item_us.push_back(chrono::duration_cast<chrono::microseconds>(t_item_end - t_item_start).count());
+                user_us.push_back(chrono::duration_cast<chrono::microseconds>(t_user_end - t_user_start).count());
             #endif
         }
 
@@ -227,6 +242,17 @@ awaitable<void> run_protocol(boost::asio::io_context& io_context, int k) {
             ofstream done("mpc_results.done", ios::trunc);
             done << "ok\n"; done.close();
             cout << "P0: Wrote mpc_results.txt and mpc_results.done" << endl;
+        }
+        #endif
+
+        #ifdef ROLE_p0
+        {
+            // timings file
+            ofstream tf("timings.txt", ios::trunc);
+            tf << "query,item_us,user_us\n";
+            for (size_t i = 0; i < item_us.size(); ++i)
+                tf << i << "," << item_us[i] << "," << user_us[i] << "\n";
+            tf.close();
         }
         #endif
 

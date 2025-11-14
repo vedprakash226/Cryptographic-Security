@@ -15,7 +15,7 @@ awaitable<void> handle_clients(tcp::socket p0_socket, tcp::socket p1_socket) {
         co_await boost::asio::async_read(p0_socket, boost::asio::buffer(&k, sizeof(k)), use_awaitable);
         cout << "P2: Received request for " << k << " triples." << endl;
 
-        while(k > 0) {
+        while(k>0){
             vector<BeaverTriple> p0_triples(k), p1_triples(k);
 
             // Single 'a' across k (matches scalarVecProd)
@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
         boost::asio::read(sA, boost::asio::buffer(&rA, 1));
         boost::asio::read(sB, boost::asio::buffer(&rB, 1));
         if (!((rA == 0 || rA == 1) && (rB == 0 || rB == 1) && (rA != rB))) {
-            cerr << "P2: invalid role handshake: rA=" << (int)rA << " rB=" << (int)rB << "\n";
+            cerr << "P2: invalid role handshake: rA=" << (int)rA << " rB=" << (int)rB <<endl;
             return 1;
         }
 
