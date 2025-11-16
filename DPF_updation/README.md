@@ -5,12 +5,11 @@
 
 ---
 
-## 1. High‑Level Goal
+## 1. Task
 
-We have a recommendation‑style setting:
 
 - `m` users, `n` items.
-- Each user and item is represented as a length‑`k` vector over `ℤ_mod` (`mod = 1 000 000 007`).
+- Each user and item is represented as a length‑`k` vector over `ℤ_mod` (`mod = 1e9+7`).
 - A client issues `Q` queries, each specifying:
   - a user index `i`,
   - a (secret) item index `j`,
@@ -22,7 +21,7 @@ Two semi‑honest servers `P0` and `P1` hold additive shares of all user and ite
 2. Update the chosen **user profile** and corresponding **item profile**.
 3. Let an offline verifier check correctness.
 
-The secret item index `j` is encoded via a **Distributed Point Function (DPF)**, instead of a one‑hot vector.
+The secret item index `j` is encoded via a **Distributed Point Function (DPF)**
 
 ---
 
@@ -180,7 +179,7 @@ The key point you care about for the DPF itself:
 
 All commands below are from the `A3/` directory.
 
-### 6.1 Simple local run (helper script)
+###  To run the protocol
 
 ```bash
 ./run.sh 100 200 2 6
@@ -189,32 +188,11 @@ All commands below are from the `A3/` directory.
 
 This script just echoes the configuration; the actual MPC protocol is run inside Docker.
 
-### 6.2 Docker‑based workflow
 
-```bash
-# 1) Build images
-docker-compose build
-
-# 2) Generate data (users/items + DPF keys)
-NUM_USERS=100 NUM_ITEMS=200 NUM_FEATURES=2 NUM_QUERIES=6 \
-docker-compose run --rm gen_data
-
-# 3) Run the MPC parties and triple server
-docker-compose up p2 p1 p0
-
-# 4) Run verifier (reconstruct & check updated users/items)
-docker-compose run --rm verify
-
-# 5) Tear down
-docker-compose down -v
-```
-
-Outputs are written under `A3/data/`.
 
 ---
 
 ## 7. Benchmark Scripts
-
 Run the benchmark driver in `A4/eval.py`:
 
 ```bash
@@ -226,9 +204,9 @@ Key flags:
 - `--users / --items / --features / --queries`: baseline sizes.
 - `--queries-list`, `--items-list`, `--users-list`: comma-separated sweep values.
 - `--prebuilt`: skip rebuilding Docker images.
-- `--outdir`: where CSV/plots are written (default `../A3/data`).
+- `--outdir`: location to save the results.
 
-Example invocations:
+Example to run script:
 
 ```bash
 python3 eval.py --vary queries --queries-list 50,100,150,200 --users 100 --items 200 --features 40 --prebuilt
@@ -236,6 +214,6 @@ python3 eval.py --vary items --items-list 50,100,150,200 --users 100 --features 
 python3 eval.py --vary users --users-list 50,100,150,200 --items 200 --features 40 --queries 50
 ```
 
-Each run performs `gen_data`, `(p2,p1,p0)` execution, `verify`, then produces CSV + PNG plots under the chosen output directory.
+Each run performs `gen_data`, `(p2,p1,p0)` execution, `verify`, then produces data and plots in the A3/data
 
 ---
