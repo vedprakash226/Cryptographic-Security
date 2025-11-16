@@ -12,7 +12,7 @@ from typing import Dict, List, Sequence
 
 import matplotlib.pyplot as plt
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent / "A3"
 OUT_DIR_DEFAULT = REPO_ROOT / "data"
 
 

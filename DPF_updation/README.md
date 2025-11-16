@@ -143,16 +143,13 @@ The MPC protocol uses the DPF keys as follows (high level):
 
 ---
 
-## 5. Time Complexity (As Used in This Implementation)
-
+## 5. Time Complexity
 Let:
-
 - `n` = number of items,
 - `k` = profile dimension,
 - `Q` = number of queries.
 
 ### 5.1 DPF Key Generation
-
 Performed once per query in `gen_data`:
 
 - **Per key (per query):** `O(log n)`
@@ -218,34 +215,27 @@ Outputs are written under `A3/data/`.
 
 ## 7. Benchmark Scripts
 
-To empirically study asymptotic behavior you can use the provided Python scripts inside A4:
+Run the benchmark driver in `A4/eval.py`:
 
-- `bench_vary_users.py` – vary `m` (users) and plot:
-  - per‑query user update time
-  - per‑query item update time
-- `bench_vary_items.py` – vary `n` (items) and plot:
-  - per‑query user/item update time vs number of items
-- `bench_vary_query.py` – vary `Q` (queries) and plot:
-  - per‑query user/item update time vs number of queries
+```bash
+cd A4
+python3 eval.py --vary <queries|items|users> [options]
+```
 
-Each script:
+Key flags:
+- `--users / --items / --features / --queries`: baseline sizes.
+- `--queries-list`, `--items-list`, `--users-list`: comma-separated sweep values.
+- `--prebuilt`: skip rebuilding Docker images.
+- `--outdir`: where CSV/plots are written (default `../A3/data`).
 
-1. Sets the appropriate `NUM_*` environment variables.
-2. Runs `gen_data`, then `p2/p1/p0`, then `verify`.
-3. Parses `data/timings.txt` (written by `pB.cpp`) to obtain per‑query user/item runtimes.
-4. Emits a CSV and a `png` plot under `data/plots/`.
+Example invocations:
+
+```bash
+python3 eval.py --vary queries --queries-list 50,100,150,200 --users 100 --items 200 --features 40 --prebuilt
+python3 eval.py --vary items --items-list 50,100,150,200 --users 100 --features 40 --queries 50
+python3 eval.py --vary users --users-list 50,100,150,200 --items 200 --features 40 --queries 50
+```
+
+Each run performs `gen_data`, `(p2,p1,p0)` execution, `verify`, then produces CSV + PNG plots under the chosen output directory.
 
 ---
-
-## 8. Security Notes
-
-- **Semi‑honest model**: `P0`, `P1`, and `P2` follow the protocol but may try to infer information from their views.
-- **Privacy of item index `j`**:
-  - Neither `P0` nor `P1` learns `j` directly.
-  - Access pattern is “softened” via DPF evaluations, but the current code still performs an `O(n)` scan over items.
-- **Key reuse**:
-  - Each query uses its own fresh DPF key pair.
-- **DPF complexity**:
-  - Keys are size `O(log n)` and can be generated/evaluated in time `O(log n)` per point.
-
-This README reflects the DPF key generation protocol and its `O(log n)` complexity as implemented in this MPC project.
